@@ -50,15 +50,11 @@ score_dict <- function(scorecard) {
   return(scored_dict)
 }
 
-dict_get <- function(stack,scored_dict) {
-  used_words <- c()
-  for(i in 1:length(stack)){
-    used_words <- unlist(append(used_words,stack[[i]][[2]]))
-  }
-  scored_dict <- lapply(scored_dict, function(x){x <- x[!x %in% used_words]})
-  return(scored_dict)
+dict_avail_words <- function(clues, score_dict) {
+  avail_words <- score_dict[[1]][!score_dict[[1]] %in% clues]
+  return(avail_words)
 }
-  
+ 
 #generate a frequency table showing how likely a given word is to appear in a square
 freq_init <- function(dict){
   freq <- t(data.frame(lapply(dict, strsplit, "")))
@@ -129,31 +125,35 @@ next_line <- function(puzzle,stack){
 }
 
 #look through the across rows and make sure that the puzzle is still viable
-test_puzzle <- function(puzzle,stack,dict){
-  dict <- dict_get(stack,dict)
+test_puzzle <- function(clue, avail_words, puzzle, depth){
+  puzzle <- write_word(clue,puzzle,depth)
   apply(puzzle, 1, function(x){
       x[is.na(x)] <- '.'
-      matches <- lapply(dict,str_detect,regex(paste(unlist(x), collapse='')))
+      matches <- lapply(avail_words,str_detect,regex(paste(unlist(x), collapse='')))
       pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
     })
 }
 
 #find the next word to be added to the puzzle using the frequency table
 #look for the best word where the frequency serves both across and down directions on puzzle
-find_word <- function(dict,index){
-  if(length(dict) > 1){
-    return(sample(dict, 1))
-  } else if(length(dict) == 1){
-    return(dict[1])
-  } else {
-    return('dict is empty')
+find_word <- function(clues,stack_dict,depth){
+  puzzle <- puzzle_init()
+  for(i in 1:(depth-1)){
+    puzzle <- write_word(clues[i],puzzle,i)
   }
+  for(i in 1:length(stack_dict)) {
+    try <- test_puzzle(stack_dict[i],stack_dict,puzzle,depth)
+    if(!FALSE %in% try){
+      return(c(stack_dict[i],list(stack_dict[i+1:length(stack_dict)])))
+    }
+  }
+  return(FALSE)
 }
 
 #write a word into the puzzle at a given index
-write_word <- function(word, puzzle, index){
+write_word <- function(word, puzzle, depth){
   word <- strsplit(word, "")[[1]]
-  puzzle[,index] <- word
+  puzzle[,depth] <- word
   return(puzzle)
 }
 
@@ -161,19 +161,15 @@ write_word <- function(word, puzzle, index){
 
 ```{r}
 stack <- stack_init()
-puzzle <- puzzle_init()
-dict <- dict_init()
-freq <- freq_init(dict)
-scorecard <- scorecard_init(dict,freq)
-dict <- score_dict(scorecard)
+dict_all <- dict_init()
+freq <- freq_init(dict_all)
+scorecard <- scorecard_init(dict_all,freq)
+score_dict <- score_dict(scorecard)
 ```
 
 ```{r}
 # for testing...
-index <- 1
-word <- 'sale'
-puzzle <- write_word(word,puzzle,index)
-stack <- push(stack,index,word,puzzle,dict)
+seed <- 'sale'
 ```
 
 ```{r}
@@ -181,44 +177,24 @@ execution_log <- data.frame(stack_lvl = NA, dict_length = NA, word = NA, down1 =
 ```
 
 ```{r}
-main <- function(stack,dict){
-  while(TRUE){
-    test <- test_puzzle(puzzle,stack,dict)
-    if(FALSE %in% test | word == 'dict is empty'){
-      if(length(stack)==1){ #if pop would remove the first entry from stack
-        break
-      }
-      stack <- pop(stack)
-      dict <- observe('dict',stack)
-      }
-      else {
-      dict <- dict_get(stack,scored_dict)
-    }
-    puzzle <- observe('puzzle',stack)
-    index <- next_line(puzzle,stack)
-    if(index == 'puzzle is complete'){
-      break
-    }
-    word <- find_word(dict)
-    if(word == 'dict is empty'){
-      next
-    }
-    puzzle <- write_word(word, puzzle, index)
-    stack <- push(stack,index,word,puzzle,dict)
-    #execution_log <- rbind(execution_log, data.frame(stack_lvl = length(stack), dict_length = length(dict), word = word, down1 = paste(unlist(puzzle$down1), collapse=''), down2 = paste(unlist(puzzle$down2), collapse=''), down3 =  paste(unlist(puzzle$down3), collapse='')))
+main <- function(seed,score_dict){
+  clues <- c(seed)
+  while(length(clues) != 4){
+    depth <- length(clues)+1
+    stack_dict <- score_dict[[depth]]
+    stack_dict <- stack_dict[!stack_dict %in% clues]
+    search_tpl <- find_word(clues,stack_dict,depth)
+    stack_dict <- search_tpl[[2]]
+    clues <- append(clues, search_tpl[[1]])
   }
-  return(puzzle)
+  return(clues)
 }
-# undebug(pop)
-# debug(main)
-xword <- main(stack,dict)
+
+clues <-  main(seed,score_dict)
+
+xword <-puzzle_init()
+for(i in 1:length(clues)){
+  xword <- write_word(clues[i], xword, i)
+}
+xword
 ```
-
-```{r}
-exe_log <- execution_log %>% 
-  cbind(i = seq(1,nrow(execution_log)))
-
-ggplot(exe_log) +
-  geom_line(aes(x=i,y=dict_length))
-```
-
