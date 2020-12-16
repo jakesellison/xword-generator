@@ -5,6 +5,8 @@ output: html_document
 ```{r}
 library(tidyverse)
 library(qdapDictionaries)
+library(profvis)
+stringi::stri_detect_regex()
 ```
 
 ```{r}
@@ -40,7 +42,7 @@ dict_init <- function(){
 }
 
 #for each column in the puzzle, create a dict list ordered by score
-score_dict <- function(scorecard) {
+gen_score_dict <- function(scorecard) {
   scored_dict <- c()
   for(i in 1:(ncol(scorecard)-1)) {
     score_col <- data.frame(word = scorecard[,1], score = scorecard[,i+1]) %>% 
@@ -127,11 +129,12 @@ next_line <- function(puzzle,stack){
 #look through the across rows and make sure that the puzzle is still viable
 test_puzzle <- function(clue, avail_words, puzzle, depth){
   puzzle <- write_word(clue,puzzle,depth)
-  apply(puzzle, 1, function(x){
-      x[is.na(x)] <- '.'
-      matches <- lapply(avail_words,str_detect,regex(paste(unlist(x), collapse='')))
-      pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
-    })
+  puzzle[is.na(puzzle)] <- '.'
+  regex_list <- apply(puzzle, 1, function(x){regex(paste(unlist(x), collapse=''))})
+  lapply(regex_list, function(x){
+    matches <- sapply(avail_words,stringi::stri_detect_regex,x)
+    pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
+  })
 }
 
 #find the next word to be added to the puzzle using the frequency table
@@ -144,10 +147,10 @@ find_word <- function(clues,stack_dict,depth){
   for(i in 1:length(stack_dict)) {
     try <- test_puzzle(stack_dict[i],stack_dict,puzzle,depth)
     if(!FALSE %in% try){
-      return(c(stack_dict[i],list(stack_dict[i+1:length(stack_dict)])))
+      return(c(stack_dict[i],list(stack_dict[(i+1):length(stack_dict)])))
     }
   }
-  return(FALSE)
+  return(c(FALSE,FALSE))
 }
 
 #write a word into the puzzle at a given index
@@ -164,12 +167,12 @@ stack <- stack_init()
 dict_all <- dict_init()
 freq <- freq_init(dict_all)
 scorecard <- scorecard_init(dict_all,freq)
-score_dict <- score_dict(scorecard)
+score_dict <- gen_score_dict(scorecard)
 ```
 
 ```{r}
 # for testing...
-seed <- 'sale'
+seed <- 'psst'
 ```
 
 ```{r}
@@ -179,17 +182,26 @@ execution_log <- data.frame(stack_lvl = NA, dict_length = NA, word = NA, down1 =
 ```{r}
 main <- function(seed,score_dict){
   clues <- c(seed)
+  stack_dict <- score_dict
   while(length(clues) != 4){
     depth <- length(clues)+1
-    stack_dict <- score_dict[[depth]]
-    stack_dict <- stack_dict[!stack_dict %in% clues]
-    search_tpl <- find_word(clues,stack_dict,depth)
-    stack_dict <- search_tpl[[2]]
-    clues <- append(clues, search_tpl[[1]])
+    stack_dict[[depth]] <- stack_dict[[depth]][!stack_dict[[depth]] %in% clues]
+    search_tpl <- find_word(clues,stack_dict[[depth]],depth)
+    if(search_tpl[[1]] == FALSE){
+      clues <- clues[1:length(clues)-1]
+      stack_dict[[depth]] <- score_dict[[depth]]
+      depth <- depth-1
+    } else {
+      stack_dict[[depth]] <- search_tpl[[2]]
+      clues <- append(clues, search_tpl[[1]])
+    }
   }
   return(clues)
 }
+```
 
+
+```{r}
 clues <-  main(seed,score_dict)
 
 xword <-puzzle_init()
@@ -198,3 +210,51 @@ for(i in 1:length(clues)){
 }
 xword
 ```
+
+```{r}
+clues <- c('sale','area')
+puzzle <- puzzle_init()
+depth <- 3
+avail_words <- as.vector(stack_dict)
+for(i in 1:(depth-1)){
+  puzzle <- write_word(clues[i],puzzle,i)
+}
+clue <- 'hmph'
+puzzle <- write_word(clue,puzzle,depth)
+puzzle[is.na(puzzle)] <- '.'
+
+
+profvis({
+  regex_list <- apply(puzzle, 1, function(x){regex(paste(unlist(x), collapse=''))})
+  lapply(regex_list, function(x){
+    matches <- sapply(avail_words,stringi::stri_detect_regex,x)
+    pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
+  })
+  match <- c()
+  match_list <- rep(NA,4)
+  for(i in 1:nrow(puzzle)){
+    regex_clue <- regex(paste(unlist(puzzle[i,]), collapse=''))
+    for(j in 1:length(avail_words)){
+      match <- append(match,stringi::stri_detect_regex(avail_words[j],regex_clue))
+      # if(stringi::stri_detect_regex(avail_words[j],regex_clue) == TRUE){
+      #   match_list[i] <- TRUE
+      #   break
+      # }
+    }
+  }
+  pass <- ifelse(length(match_list[is.na(match_list)]) == 0, TRUE, FALSE)
+})
+
+vapply()
+
+profvis({
+  data(diamonds, package = "ggplot2")
+
+  plot(price ~ carat, data = diamonds)
+  m <- lm(price ~ carat, data = diamonds)
+  abline(m, col = "red")
+})
+profvis()
+
+```
+
