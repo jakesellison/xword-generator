@@ -6,7 +6,7 @@ output: html_document
 library(tidyverse)
 library(qdapDictionaries)
 library(profvis)
-stringi::stri_detect_regex()
+library(snow)
 ```
 
 ```{r}
@@ -69,74 +69,6 @@ puzzle_init <- function(){
   return(puzzle)
 }
 
-#initialize the stack
-stack_init <- function(){
-  stack <- c()
-}
-
-#push a line to the stack
-push <- function(stack,index, word, puzzle, dict){
-  dict <- lapply(dict, function(x){x <- x[x != word]})
-  stack <- append(stack,list(list(index, word, data.frame(puzzle), dict[dict != word])))
-  return(stack)
-}
-
-#pop the most recent line from the stack and remove the word from the popped stack from the preceding line's dictionary
-pop <- function(stack){
-  remove_word <- observe('word',stack)
-  stack <- stack[1:length(stack)-1]
-  dict <- observe('dict',stack)
-  stack[[length(stack)]][[4]] <- lapply(dict, function(x){x <- x[x != remove_word]})
-  return(stack)
-}
-
-observe <- function(which, stack){
-  if(which == 'index'){
-    which <- 1
-  } else if(which == 'word'){
-    which <- 2
-  } else if(which == 'puzzle'){
-    which <- 3
-  } else if(which == 'dict'){
-    which <- 4
-  } else {
-    which <- 100 #crash the program
-  }
-  return(stack[[length(stack)]][[which]])
-}
-
-#find the indices of the next line to gen for the puzzle. uses the stack to find available indices, returns a df index$across, index$down
-next_line <- function(puzzle,stack){
-  indices <- c()
-  for(i in 1:length(stack)){
-    indices <- unlist(append(indices,stack[[i]][[1]]))
-  }
-  # puzzle_cols <- seq(1:ncol(puzzle))
-  # remaining_cols <- puzzle_cols[!puzzle_cols %in% indices]
-  # if(length(remaining_cols) > 1) {
-  #   line <- sample(remaining_cols,1)
-  # } else if(length(remaining_cols == 1)) {
-  #   line <- remaining_cols
-  # } 
-  if(length(indices) < ncol(puzzle)) {
-    line <- length(indices) + 1
-  } else {
-    line <- 'puzzle is complete'
-  }
-  return(line)
-}
-
-#look through the across rows and make sure that the puzzle is still viable
-test_puzzle <- function(clue, avail_words, puzzle, depth){
-  puzzle <- write_word(clue,puzzle,depth)
-  puzzle[is.na(puzzle)] <- '.'
-  regex_list <- apply(puzzle, 1, function(x){regex(paste(unlist(x), collapse=''))})
-  lapply(regex_list, function(x){
-    matches <- sapply(avail_words,stringi::stri_detect_regex,x)
-    pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
-  })
-}
-
 #find the next word to be added to the puzzle using the frequency table
 #look for the best word where the frequency serves both across and down directions on puzzle
 find_word <- function(clues,stack_dict,depth){
@@ -153,6 +85,20 @@ find_word <- function(clues,stack_dict,depth){
   return(c(FALSE,FALSE))
 }
 
+#look through the across rows and make sure that the puzzle is still viable
+test_puzzle <- function(clue, avail_words, puzzle, depth){
+  avail_words <- sapply(avail_words, shorten_word, depth)
+  puzzle <- write_word(clue,puzzle,depth)
+  across_list <- apply(puzzle, 1, function(x){substr(paste(unlist(x), collapse=''),1,depth)})
+  sapply(across_list, test_word, avail_words)
+}
+
+test_word <- function(x, avail_words){
+  x %in% avail_words
+}
+
+shorten_word <- function(x,depth){substr(x,1,depth)}
+
 #write a word into the puzzle at a given index
 write_word <- function(word, puzzle, depth){
   word <- strsplit(word, "")[[1]]
@@ -163,7 +109,6 @@ write_word <- function(word, puzzle, depth){
 ```
 
 ```{r}
-stack <- stack_init()
 dict_all <- dict_init()
 freq <- freq_init(dict_all)
 scorecard <- scorecard_init(dict_all,freq)
@@ -172,18 +117,16 @@ score_dict <- gen_score_dict(scorecard)
 
 ```{r}
 # for testing...
-seed <- 'psst'
-```
-
-```{r}
-execution_log <- data.frame(stack_lvl = NA, dict_length = NA, word = NA, down1 = NA, down2 = NA, down3 =  NA)
+seed <- 'star'
 ```
 
 ```{r}
 main <- function(seed,score_dict){
+  #browser()
   clues <- c(seed)
   stack_dict <- score_dict
   while(length(clues) != 4){
+    message(paste(length(stack_dict[[depth]])))
     depth <- length(clues)+1
     stack_dict[[depth]] <- stack_dict[[depth]][!stack_dict[[depth]] %in% clues]
     search_tpl <- find_word(clues,stack_dict[[depth]],depth)
@@ -200,61 +143,52 @@ main <- function(seed,score_dict){
 }
 ```
 
+```{r}
+profvis({
+  clues <-  main(seed,score_dict)
+})
+```
+
 
 ```{r}
-clues <-  main(seed,score_dict)
+puzzle <- puzzle_init()
+clues <- c('sale','area')
+depth <- 3
+for(i in 1:(depth-1)){
+    puzzle <- write_word(clues[i],puzzle,i)
+}
+clue <- 'hmph'
+puzzle <- write_word(clue,puzzle,depth)
+puzzle[is.na(puzzle)] <- '.'
+avail_words <- score_dict[[1]]
 
+shorten_word <- function(x,depth){substr(x,1,depth)}
+avail_words_shorter <- sapply(avail_words, shorten_word, depth)
+
+regex_list <- apply(puzzle, 1, function(x){regex(paste(unlist(x), collapse=''))})
+across_list <- apply(puzzle, 1, function(x){substr(paste(unlist(x), collapse=''),1,depth)})
+
+profvis({
+  #regex
+  test_word <- function(x, avail_words){
+    matches <- sapply(avail_words,stringi::stri_detect_regex,x)
+    pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
+  }
+  lapply(regex_list, test_word, avail_words)
+  
+  #shorter words
+  test_word_shorter <- function(x, avail_words_shorter){
+    x %in% avail_words_shorter
+  }
+  x<-sapply(across_list, test_word_shorter, avail_words_shorter)
+})
+```
+
+
+```{r}
 xword <-puzzle_init()
 for(i in 1:length(clues)){
   xword <- write_word(clues[i], xword, i)
 }
 xword
 ```
-
-```{r}
-clues <- c('sale','area')
-puzzle <- puzzle_init()
-depth <- 3
-avail_words <- as.vector(stack_dict)
-for(i in 1:(depth-1)){
-  puzzle <- write_word(clues[i],puzzle,i)
-}
-clue <- 'hmph'
-puzzle <- write_word(clue,puzzle,depth)
-puzzle[is.na(puzzle)] <- '.'
-
-
-profvis({
-  regex_list <- apply(puzzle, 1, function(x){regex(paste(unlist(x), collapse=''))})
-  lapply(regex_list, function(x){
-    matches <- sapply(avail_words,stringi::stri_detect_regex,x)
-    pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
-  })
-  match <- c()
-  match_list <- rep(NA,4)
-  for(i in 1:nrow(puzzle)){
-    regex_clue <- regex(paste(unlist(puzzle[i,]), collapse=''))
-    for(j in 1:length(avail_words)){
-      match <- append(match,stringi::stri_detect_regex(avail_words[j],regex_clue))
-      # if(stringi::stri_detect_regex(avail_words[j],regex_clue) == TRUE){
-      #   match_list[i] <- TRUE
-      #   break
-      # }
-    }
-  }
-  pass <- ifelse(length(match_list[is.na(match_list)]) == 0, TRUE, FALSE)
-})
-
-vapply()
-
-profvis({
-  data(diamonds, package = "ggplot2")
-
-  plot(price ~ carat, data = diamonds)
-  m <- lm(price ~ carat, data = diamonds)
-  abline(m, col = "red")
-})
-profvis()
-
-```
-
