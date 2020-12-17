@@ -6,14 +6,14 @@ output: html_document
 library(tidyverse)
 library(qdapDictionaries)
 library(profvis)
-library(snow)
+library(gtools)
 ```
 
 ```{r}
 #compute the score of a word by the weighting of the table
 score_word <- function(word,freq){
   char_list <- strsplit(word,"")[[1]]
-  score <- c(down1 = 0, down2 = 0, down3 = 0, down4 = 0)
+  score <- c(down1 = 0, down2 = 0, down3 = 0, down4 = 0, down5 = 0)
   for (i in 1:length(char_list)){
     for (j in 1:length(score)) {
       score[i] <- score [i] + freq[[i]][match(char_list[[j]], freq[[i]]$x),2]
@@ -26,18 +26,18 @@ score_word <- function(word,freq){
 scorecard_init <- function(dict, freq){
   scorecard <- data.frame(cbind(dict, do.call(rbind, data.frame(lapply(dict, score_word, freq)))))
   rownames(scorecard) <- NULL
-  colnames(scorecard) <- c('word','down1','down2','down3','down4')
+  colnames(scorecard) <- c('word','down1','down2','down3','down4','down5')
   scorecard$word <- as.character(scorecard$word)
-  scorecard <- scorecard %>% mutate_at(c(2:5),function(x){as.numeric(as.character(x))})
+  scorecard <- scorecard %>% mutate_at(c(2:6),function(x){as.numeric(as.character(x))})
   return(scorecard)
 }
 
 #initialize the dictionary
 dict_init <- function(){
   full_dict <- qdapDictionaries::DICTIONARY
-  dict3 <- mutate(full_dict, nchar = nchar(word)) %>% 
-    filter(nchar == 4)
-  dict <- dict3$word
+  dict5 <- mutate(full_dict, nchar = nchar(word)) %>% 
+    filter(nchar == 5)
+  dict <- dict5$word
   return(dict)
 }
 
@@ -65,7 +65,7 @@ freq_init <- function(dict){
 }
 #initialize the puzzle
 puzzle_init <- function(){
-  puzzle <- data.frame(down1 = rep(NA,4), down2 = rep(NA,4), down3 = rep(NA,4), down4 =  rep(NA,4))
+  puzzle <- data.frame(down1 = rep(NA,5), down2 = rep(NA,5), down3 = rep(NA,5), down4 =  rep(NA,5), down5 =  rep(NA,5))
   return(puzzle)
 }
 
@@ -109,6 +109,41 @@ write_word <- function(word, puzzle, depth){
 ```
 
 ```{r}
+#experimenting with memory for time savings
+explode_dict <- function(dict_all){
+  do.call(c,lapply(dict_all, function(x){
+    split_out <- c()
+    for (i in 1:nchar(x)){
+      split_out <- append(split_out, substr(x,1,i))
+    }
+    return(split_out)
+  }))
+}
+
+char_to_num <- function(x){
+  if(x == ""){return(1)}
+  as.numeric(charToRaw(x))-95
+}
+
+populate_frag_array <- function(frags) {
+  for (frag in frags) {
+    x <- char_to_num(substr(frag,1,1))
+    y <- char_to_num(substr(frag,2,2))
+    z <- char_to_num(substr(frag,3,3))
+    a <- char_to_num(substr(frag,4,4))
+    b <- char_to_num(substr(frag,5,5))
+    frag_array[x,y,z,a,b] <- frag_array[x,y,z,a,b] + 1
+  }
+  return(frag_array)
+}
+
+frags <- explode_dict(dict_all)
+frag_array <- array(rep(0,27^5),c(27,27,27,27,27))
+frag_array <- populate_frag_array(frags)
+```
+
+
+```{r}
 dict_all <- dict_init()
 freq <- freq_init(dict_all)
 scorecard <- scorecard_init(dict_all,freq)
@@ -117,7 +152,7 @@ score_dict <- gen_score_dict(scorecard)
 
 ```{r}
 # for testing...
-seed <- 'star'
+seed <- 'sassy'
 ```
 
 ```{r}
@@ -125,8 +160,7 @@ main <- function(seed,score_dict){
   #browser()
   clues <- c(seed)
   stack_dict <- score_dict
-  while(length(clues) != 4){
-    message(paste(length(stack_dict[[depth]])))
+  while(length(clues) != 5){
     depth <- length(clues)+1
     stack_dict[[depth]] <- stack_dict[[depth]][!stack_dict[[depth]] %in% clues]
     search_tpl <- find_word(clues,stack_dict[[depth]],depth)
@@ -148,7 +182,6 @@ profvis({
   clues <-  main(seed,score_dict)
 })
 ```
-
 
 ```{r}
 puzzle <- puzzle_init()
