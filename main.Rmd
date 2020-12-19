@@ -13,7 +13,7 @@ library(gtools)
 #compute the score of a word by the weighting of the table
 score_word <- function(word,freq){
   char_list <- strsplit(word,"")[[1]]
-  score <- c(down1 = 0, down2 = 0, down3 = 0, down4 = 0, down5 = 0)
+  score <- c(down1 = 0, down2 = 0, down3 = 0, down4 = 0)
   for (i in 1:length(char_list)){
     for (j in 1:length(score)) {
       score[i] <- score [i] + freq[[i]][match(char_list[[j]], freq[[i]]$x),2]
@@ -23,20 +23,19 @@ score_word <- function(word,freq){
 }
 
 #score every word based on frequency of letter positions
-scorecard_init <- function(dict, freq){
+scorecard_init <- function(dict, freq, dim){
   scorecard <- data.frame(cbind(dict, do.call(rbind, data.frame(lapply(dict, score_word, freq)))))
-  rownames(scorecard) <- NULL
-  colnames(scorecard) <- c('word','down1','down2','down3','down4','down5')
-  scorecard$word <- as.character(scorecard$word)
-  scorecard <- scorecard %>% mutate_at(c(2:6),function(x){as.numeric(as.character(x))})
+  #rownames(scorecard) <- NULL
+  #scorecard$word <- as.character(scorecard$word)
+  scorecard <- scorecard %>% mutate_at(c(2:dim+1),function(x){as.numeric(as.character(x))})
   return(scorecard)
 }
 
 #initialize the dictionary
-dict_init <- function(){
+dict_init <- function(dim){
   full_dict <- qdapDictionaries::DICTIONARY
   dict5 <- mutate(full_dict, nchar = nchar(word)) %>% 
-    filter(nchar == 5)
+    filter(nchar == dim)
   dict <- dict5$word
   dict <- tolower(dict)
   dict <- dict[stringi::stri_detect_regex(dict,"^[a-z]+$")]
@@ -51,12 +50,7 @@ gen_score_dict <- function(scorecard) {
       arrange(desc(score))
     scored_dict <- append(scored_dict,list(as.character(score_col[,1])))
   }
-  return(scored_dict)
-}
-
-dict_avail_words <- function(clues, score_dict) {
-  avail_words <- score_dict[[1]][!score_dict[[1]] %in% clues]
-  return(avail_words)
+  return(lapply(scored_dict, function(x){lapply(x, function(y){strsplit(y,"")[[1]]})}))
 }
  
 #generate a frequency table showing how likely a given word is to appear in a square
@@ -65,55 +59,24 @@ freq_init <- function(dict){
   freq <- apply(freq, 2, function(x){data.frame(table(x)[order(table(x), decreasing = TRUE)])})
   return(freq)
 }
-#initialize the puzzle
-puzzle_init <- function(){
-  puzzle <- data.frame(down1 = rep(NA,5), down2 = rep(NA,5), down3 = rep(NA,5), down4 =  rep(NA,5))
-  return(puzzle)
-}
+```
 
-#find the next word to be added to the puzzle using the frequency table
-#look for the best word where the frequency serves both across and down directions on puzzle
-find_word <- function(clues,stack_dict,depth,frag_array){
-  puzzle <- puzzle_init()
-  for(i in 1:(depth-1)){
-    puzzle <- write_word(clues[i],puzzle,i)
-  }
-  for(i in 1:length(stack_dict)) {
-    stack_dict[i]
-    try <- test_puzzle(stack_dict[i],stack_dict,puzzle,depth,frag_array)
+
+```{r}
+find_word <- function(clue_matrix,stack_dict,frag_array,dim,clues){
+  for(i in 1:length(stack_dict)){
+    if(paste(stack_dict[[i]],collapse='') %in% clues){next}
+    try <- apply(cbind(clue_matrix,stack_dict[[i]]), 1, test_word, frag_array, dim)
     if(!FALSE %in% try){
-      return(c(stack_dict[i],list(stack_dict[(i+1):length(stack_dict)])))
+      return(c(stack_dict[i],list(stack_dict[(i+1):length(stack_dict)]),TRUE))
     }
   }
-  return(c(FALSE,FALSE))
+  return(c(FALSE,FALSE,FALSE))
 }
 
-#look through the across rows and make sure that the puzzle is still viable
-test_puzzle <- function(clue, avail_words, puzzle, depth,frag_array){
-  avail_words <- sapply(avail_words, shorten_word, depth)
-  puzzle <- write_word(clue,puzzle,depth)
-  across_list <- apply(puzzle, 1, function(x){substr(paste(unlist(x), collapse=''),1,depth)})
-  sapply(across_list, test_word, frag_array)
+test_word <- function(frag, frag_array, dim){
+  return(frag_array[matrix(c(sapply(frag,char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)] > 0)
 }
-
-test_word <- function(frag, frag_array){
-  x <- char_to_num(substr(frag,1,1))
-  y <- char_to_num(substr(frag,2,2))
-  z <- char_to_num(substr(frag,3,3))
-  a <- char_to_num(substr(frag,4,4))
-  b <- char_to_num(substr(frag,4,4))
-  return(frag_array[x,y,z,a,b] > 0)
-}
-
-shorten_word <- function(x,depth){substr(x,1,depth)}
-
-#write a word into the puzzle at a given index
-write_word <- function(word, puzzle, depth){
-  word <- strsplit(word, "")[[1]]
-  puzzle[,depth] <- word
-  return(puzzle)
-}
-
 ```
 
 ```{r}
@@ -135,119 +98,76 @@ char_to_num <- function(x){
   as.numeric(charToRaw(x))-95
 }
 
-populate_frag_array <- function(frags) {
+populate_frag_array <- function(frags, frag_array, dim) {
   for (frag in frags) {
-    x <- char_to_num(substr(frag,1,1))
-    y <- char_to_num(substr(frag,2,2))
-    z <- char_to_num(substr(frag,3,3))
-    a <- char_to_num(substr(frag,4,4))
-    b <- char_to_num(substr(frag,5,5))
-    frag_array[x,y,z,a,b] <- frag_array[x,y,z,a,b] + 1
+    dim_index <- sapply(strsplit(frag,"")[[1]], char_to_num)
+    dim_matrix <- matrix(c(dim_index,rep(1,dim))[1:dim], nrow = 1, ncol = dim)
+    #index array using a matrix w/1 row, dim # of cols, and each val is an index in the dimension
+    frag_array[dim_matrix] <- frag_array[dim_matrix] + 1
   }
   return(frag_array)
 }
 
-frags <- explode_dict(dict_all)
-frag_array <- array(rep(0,27^5),c(27,27,27,27,27))
-frag_array <- populate_frag_array(frags)
+#remove a word and all of its frags from the frag_array
+## Not working because I decrement for a given level in the stack, but when all of those words are returned as viable on the next level, not all are restored.
+subtract_frag_array <- function(clue, frag_array, dim) {
+  for(i in 1:length(clue)){
+    dim_matrix <- matrix(c(sapply(clue[1:i],char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)
+    frag_array[dim_matrix] <- frag_array[dim_matrix] - 1
+  }
+}
+
+add_frag_array <- function(clue, frag_array, dim) {
+  for(i in 1:length(clue)){
+    dim_matrix <- matrix(c(sapply(clue[1:i],char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)
+    frag_array[dim_matrix] <- frag_array[dim_matrix] + 1
+  }
+}
 ```
 
 ```{r}
-dict_all <- dict_init()
-freq <- freq_init(dict_all)
-scorecard <- scorecard_init(dict_all,freq)
-score_dict <- gen_score_dict(scorecard)
-```
-
-```{r}
-main <- function(seed,score_dict,frag_array){
-  clues <- c(seed)
+main <- function(seed, dim){
+  dict_all <- dict_init(dim)
+  freq <- freq_init(dict_all)
+  scorecard <- scorecard_init(dict_all,freq,dim)
+  score_dict <- gen_score_dict(scorecard)
   stack_dict <- score_dict
-  while(length(clues) != 4){
-    depth <- length(clues)+1
-    stack_dict[[depth]] <- stack_dict[[depth]][!stack_dict[[depth]] %in% clues]
-    search_tpl <- find_word(clues,stack_dict[[depth]],depth,frag_array)
-    if(search_tpl[[1]] == FALSE){
-      clues <- clues[1:length(clues)-1]
+  
+  frags <- explode_dict(dict_all)
+  frag_array <- array(rep(0,27^dim),rep(27,dim))
+  frag_array <- populate_frag_array(frags, frag_array, dim)
+  
+  clue_matrix <- matrix(strsplit(seed,"")[[1]],nrow=dim,ncol=1,byrow = FALSE)
+  clues <- seed
+  
+  while(length(clues) != dim){
+    depth <- length(clues) + 1
+    search_tpl <- find_word(clue_matrix,stack_dict[[depth]],frag_array,dim,clues)
+    if(search_tpl[[3]] == FALSE & depth == 2){
+      return(FALSE)
+    } else if (search_tpl[[3]] == FALSE) {
       stack_dict[[depth]] <- score_dict[[depth]]
       depth <- depth-1
+      clues <- clues[1:depth-1]
+      clue_matrix <- clue_matrix[,c(1:(ncol(clue_matrix)-1))]
     } else {
       stack_dict[[depth]] <- search_tpl[[2]]
-      clues <- append(clues, search_tpl[[1]])
+      clue_matrix <- cbind(clue_matrix, search_tpl[[1]])
+      clues <- append(clues, paste(search_tpl[[1]],collapse=''))
     }
   }
-  return(clues)
+  return(clue_matrix)
 }
 ```
 
 ```{r}
 # for testing...
-seed <- 'star'
 
-profvis({
-  clues <-  main(seed,score_dict,frag_array)
-})
+start_time <- Sys.time()
+main('love', 4)
+end_time <- Sys.time()
+end_time - start_time
 ```
-
-```{r}
-xword <-puzzle_init()
-for(i in 1:length(clues)){
-  xword <- write_word(clues[i], xword, i)
-}
-xword
-```
-
-```{r}
-puzzle <- puzzle_init()
-clues <- c('sales','areas')
-depth <- 3
-for(i in 1:(depth-1)){
-    puzzle <- write_word(clues[i],puzzle,i)
-}
-clue <- 'hmpho'
-puzzle <- write_word(clue,puzzle,depth)
-puzzle[is.na(puzzle)] <- '.'
-avail_words <- score_dict[[1]]
-
-shorten_word <- function(x,depth){substr(x,1,depth)}
-avail_words_shorter <- sapply(avail_words, shorten_word, depth)
-
-regex_list <- apply(puzzle, 1, function(x){regex(paste(unlist(x), collapse=''))})
-across_list <- apply(puzzle, 1, function(x){substr(paste(unlist(x), collapse=''),1,depth)})
-
-sapply(across_list, test_word, frag_array)
-char_to_num('s')
-frag_array[20,20,1,1,1]
-test_word <- function(frag, frag_array){
-  x <- char_to_num(substr(frag,1,1))
-  y <- char_to_num(substr(frag,2,2))
-  z <- char_to_num(substr(frag,3,3))
-  a <- char_to_num(substr(frag,4,4))
-  b <- char_to_num(substr(frag,5,5))
-  return(frag_array[x,y,z,a,b] > 0)
-}
-profvis({
-  #regex
-  test_word <- function(x, avail_words){
-    matches <- sapply(avail_words,stringi::stri_detect_regex,x)
-    pass <- ifelse(length(matches[matches == TRUE]) > 0, TRUE, FALSE)
-  }
-  lapply(regex_list, test_word, avail_words)
-  
-  #shorter words
-  test_word_shorter <- function(x, avail_words_shorter){
-    x %in% avail_words_shorter
-  }
-  x<-sapply(across_list, test_word_shorter, avail_words_shorter)
-})
-```
-
-
-
-
-
-
-
 
 
 
