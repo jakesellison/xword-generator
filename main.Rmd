@@ -13,10 +13,10 @@ library(gtools)
 #compute the score of a word by the weighting of the table
 score_word <- function(word,freq){
   char_list <- strsplit(word,"")[[1]]
-  score <- c(down1 = 0, down2 = 0, down3 = 0, down4 = 0)
+  score<-c(rep(0,length(char_list)))
   for (i in 1:length(char_list)){
-    for (j in 1:length(score)) {
-      score[i] <- score [i] + freq[[i]][match(char_list[[j]], freq[[i]]$x),2]
+    for (j in 1:length(char_list)) {
+      score[i] <- score[i] + freq[[i]][match(char_list[[j]], freq[[i]]$x),2]
     }
   }
   return(score)
@@ -27,7 +27,7 @@ scorecard_init <- function(dict, freq, dim){
   scorecard <- data.frame(cbind(dict, do.call(rbind, data.frame(lapply(dict, score_word, freq)))))
   #rownames(scorecard) <- NULL
   #scorecard$word <- as.character(scorecard$word)
-  scorecard <- scorecard %>% mutate_at(c(2:dim+1),function(x){as.numeric(as.character(x))})
+  scorecard <- scorecard %>% mutate_at(c(1:dim+1),function(x){as.numeric(as.character(x))})
   return(scorecard)
 }
 
@@ -139,9 +139,12 @@ reset_frag_array <- function(clue_matrix, dim) {
 main <- function(seed, dim){
   clue_matrix <- matrix(strsplit(seed,"")[[1]],nrow=dim,ncol=1,byrow = FALSE)
   clues <- seed
+  profiling_i <- 0
   while(length(clues) != dim){
+    profiling_i <- profiling_i + 1
+    if(profiling_i == 5){return(TRUE)}
     depth <- length(clues) + 1
-    if(depth == 2){
+    if(depth == dim){
       message(paste(length(stack_dict[[2]])))
     }
     search_tpl <- find_word(clue_matrix,stack_dict[[depth]],dim,clues)
@@ -183,13 +186,67 @@ init_global_vars <- function(seed,dim){
 
 # for testing...
 
-seed <- 'crass'
+seed <- 'spasm'
 
 init_global_vars(seed,5)
 start_time <- Sys.time()
 main(seed, 5)
 end_time <- Sys.time()
 end_time - start_time
+```
+
+```{r}
+profvis({
+  dim <-5
+  clue_matrix <- matrix(strsplit(seed,"")[[1]],nrow=dim,ncol=1,byrow = FALSE)
+  clues <- seed
+  profiling_i <- 0
+  while(length(clues) != dim){
+    profiling_i <- profiling_i + 1
+    if(profiling_i == 5){break}
+    depth <- length(clues) + 1
+    if(depth == dim){
+      message(paste(length(stack_dict[[2]])))
+    }
+    
+    ### FIND WORD FUN
+    t_stack_dict <- stack_dict[[depth]]
+    search_tpl <- c()
+    for(i in 1:length(t_stack_dict)){
+      if(paste(t_stack_dict[[i]],collapse='') %in% clues){next}
+      subtract_frag_array(t_stack_dict[[i]],dim) #remove candidate word from frag_array
+      
+      # ### TEST WORD FUN
+      # frag_mat <- matrix(c(sapply(frag,char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)
+      # frag_array[frag_mat] > 0
+
+      try <- apply(cbind(clue_matrix,t_stack_dict[[i]]), 1, test_word, dim)
+      ### END
+      if(!FALSE %in% try){
+        search_tpl <- list(t_stack_dict[i],list(t_stack_dict[(i+1):length(t_stack_dict)]),TRUE)
+        break
+      } else {
+        add_frag_array(t_stack_dict[[i]],dim) #test failed, repair frag_array
+      }
+    }
+    if(length(search_tpl)==0){search_tpl <- c(FALSE,FALSE,FALSE)}
+    ### END
+    
+    if(search_tpl[[3]][[1]] == FALSE & depth == 2){
+      return(FALSE)
+    } else if (search_tpl[[3]][[1]] == FALSE) {
+      stack_dict[[depth]] <- score_dict[[depth]]
+      depth <- depth-1
+      clues <- clues[1:depth-1]
+      reset_frag_array(clue_matrix, dim)
+      clue_matrix <- clue_matrix[,c(1:(ncol(clue_matrix)-1))]
+    } else {
+      stack_dict[[depth]] <- search_tpl[[2]][[1]]
+      clue_matrix <- cbind(clue_matrix, search_tpl[[1]][[1]])
+      clues <- append(clues, paste(search_tpl[[1]][[1]],collapse=''))
+    }
+  }
+})
 ```
 
 
