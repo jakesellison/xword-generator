@@ -63,21 +63,21 @@ freq_init <- function(dict){
 
 
 ```{r}
-find_word <- function(clue_matrix,stack_dict,frag_array,dim,clues){
+find_word <- function(clue_matrix,stack_dict,dim,clues){
   for(i in 1:length(stack_dict)){
     if(paste(stack_dict[[i]],collapse='') %in% clues){next}
-    frag_array <- subtract_frag_array(stack_dict[[i]],frag_array,dim) #remove candidate word from frag_array
-    try <- apply(cbind(clue_matrix,stack_dict[[i]]), 1, test_word, frag_array, dim)
+    subtract_frag_array(stack_dict[[i]],dim) #remove candidate word from frag_array
+    try <- apply(cbind(clue_matrix,stack_dict[[i]]), 1, test_word, dim)
     if(!FALSE %in% try){
-      return(list(stack_dict[i],list(stack_dict[(i+1):length(stack_dict)]),frag_array,TRUE))
+      return(list(stack_dict[i],list(stack_dict[(i+1):length(stack_dict)]),TRUE))
     } else {
-      frag_array <- add_frag_array(stack_dict[[i]],frag_array,dim) #test failed, repair frag_array
+      add_frag_array(stack_dict[[i]],dim) #test failed, repair frag_array
     }
   }
-  return(c(FALSE,FALSE,FALSE,FALSE))
+  return(c(FALSE,FALSE,FALSE))
 }
 
-test_word <- function(frag, frag_array, dim){
+test_word <- function(frag,dim){
   return(frag_array[matrix(c(sapply(frag,char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)] > 0)
 }
 ```
@@ -113,59 +113,47 @@ populate_frag_array <- function(frags, frag_array, dim) {
 
 #remove a word and all of its frags from the frag_array
 ## Not working because I decrement for a given level in the stack, but when all of those words are returned as viable on the next level, not all are restored.
-subtract_frag_array <- function(clue, frag_array, dim) {
+subtract_frag_array <- function(clue, dim) {
   for(i in 1:length(clue)){
     dim_matrix <- matrix(c(sapply(clue[1:i],char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)
-    frag_array[dim_matrix] <- frag_array[dim_matrix] - 1
+    frag_array[dim_matrix] <<- frag_array[dim_matrix] - 1
   }
-  return(frag_array)
 }
 
-add_frag_array <- function(clue, frag_array, dim) {
+add_frag_array <- function(clue, dim) {
   for(i in 1:length(clue)){
     dim_matrix <- matrix(c(sapply(clue[1:i],char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)
-    frag_array[dim_matrix] <- frag_array[dim_matrix] + 1
+    frag_array[dim_matrix] <<- frag_array[dim_matrix] + 1
   }
-  return(frag_array)
 }
 
-reset_frag_array <- function(clue_matrix, mstr_frag_array, dim) {
+reset_frag_array <- function(clue_matrix, dim) {
+  frag_array <- mstr_frag_array
   for (i in 1:(ncol(clue_matrix)-1)) {
-    mstr_frag_array <- subtract_frag_array(clue_matrix[,i],mstr_frag_array,dim)
+    subtract_frag_array(clue_matrix[,i],dim)
   }
-  return(mstr_frag_array)
 }
 ```
 
 ```{r}
 main <- function(seed, dim){
-  dict_all <- dict_init(dim)
-  freq <- freq_init(dict_all)
-  scorecard <- scorecard_init(dict_all,freq,dim)
-  score_dict <- gen_score_dict(scorecard)
-  stack_dict <- score_dict
-  
-  frags <- explode_dict(dict_all)
-  mstr_frag_array <- array(rep(0,27^dim),rep(27,dim))
-  mstr_frag_array <- populate_frag_array(frags, mstr_frag_array, dim)
-  
   clue_matrix <- matrix(strsplit(seed,"")[[1]],nrow=dim,ncol=1,byrow = FALSE)
-  frag_array <- subtract_frag_array(strsplit(seed,"")[[1]],mstr_frag_array,dim)
   clues <- seed
-  
-  while(length(clues) != 2){
+  while(length(clues) != dim){
     depth <- length(clues) + 1
-    search_tpl <- find_word(clue_matrix,stack_dict[[depth]],frag_array,dim,clues)
-    if(search_tpl[[4]][[1]] == FALSE & depth == 2){
+    if(depth == 2){
+      message(paste(length(stack_dict[[2]])))
+    }
+    search_tpl <- find_word(clue_matrix,stack_dict[[depth]],dim,clues)
+    if(search_tpl[[3]][[1]] == FALSE & depth == 2){
       return(FALSE)
-    } else if (search_tpl[[4]][[1]] == FALSE) {
+    } else if (search_tpl[[3]][[1]] == FALSE) {
       stack_dict[[depth]] <- score_dict[[depth]]
       depth <- depth-1
       clues <- clues[1:depth-1]
-      frag_array <- reset_frag_array(clue_matrix, mstr_frag_array, dim)
+      reset_frag_array(clue_matrix, dim)
       clue_matrix <- clue_matrix[,c(1:(ncol(clue_matrix)-1))]
     } else {
-      frag_array <- search_tpl[[3]]
       stack_dict[[depth]] <- search_tpl[[2]][[1]]
       clue_matrix <- cbind(clue_matrix, search_tpl[[1]][[1]])
       clues <- append(clues, paste(search_tpl[[1]][[1]],collapse=''))
@@ -178,11 +166,28 @@ main <- function(seed, dim){
 ```{r}
 # global vars...
 
+init_global_vars <- function(seed,dim){
+
+  dict_all <<- dict_init(dim)
+  freq <<- freq_init(dict_all)
+  scorecard <<- scorecard_init(dict_all,freq,dim)
+  score_dict <<- gen_score_dict(scorecard)
+  stack_dict <<- score_dict
+
+  frags <<- explode_dict(dict_all)
+  mstr_frag_array <<- array(rep(0,27^dim),rep(27,dim))
+  mstr_frag_array <<- populate_frag_array(frags, mstr_frag_array, dim)
+  frag_array <<- mstr_frag_array
+  subtract_frag_array(strsplit(seed,"")[[1]],dim)
+}
 
 # for testing...
 
+seed <- 'crass'
+
+init_global_vars(seed,5)
 start_time <- Sys.time()
-main('smash', 5)
+main(seed, 5)
 end_time <- Sys.time()
 end_time - start_time
 ```
