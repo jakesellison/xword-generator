@@ -65,20 +65,26 @@ freq_init <- function(dict){
 ```{r}
 find_word <- function(clue_matrix,stack_dict,dim,clues){
   for(i in 1:length(stack_dict)){
-    if(paste(stack_dict[[i]],collapse='') %in% clues){next}
-    subtract_frag_array(stack_dict[[i]],dim) #remove candidate word from frag_array
-    try <- apply(cbind(clue_matrix,stack_dict[[i]]), 1, test_word, dim)
+    word <- paste(stack_dict[[i]],collapse='')
+    if(word %in% clues){next}
+    clues <- append(clues,word)
+    try <- apply(cbind(clue_matrix,stack_dict[[i]]), 1, test_word, clues, dim)
     if(!FALSE %in% try){
       return(list(stack_dict[i],list(stack_dict[(i+1):length(stack_dict)]),TRUE))
-    } else {
-      add_frag_array(stack_dict[[i]],dim) #test failed, repair frag_array
     }
+    clues <- clues[1:length(clues)-1]
   }
   return(c(FALSE,FALSE,FALSE))
 }
 
-test_word <- function(frag,dim){
-  return(frag_array[matrix(c(sapply(frag,char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)] > 0)
+test_word <- function(frag,clues,dim){
+  mat_index <- matrix(c(sapply(frag,char_to_num),rep(1,dim))[1:dim], nrow = 1, ncol = dim)
+  frag_possibilities <- frag_array[mat_index][[1]]
+  if(length(frag_possibilities[!frag_possibilities %in% clues]) > 0){
+    return(TRUE)
+  } else {
+    return(FALSE)
+  }
 }
 ```
 
@@ -101,12 +107,16 @@ char_to_num <- function(x){
   as.numeric(charToRaw(x))-95
 }
 
-populate_frag_array <- function(frags, frag_array, dim) {
-  for (frag in frags) {
-    dim_index <- sapply(strsplit(frag,"")[[1]], char_to_num)
-    dim_matrix <- matrix(c(dim_index,rep(1,dim))[1:dim], nrow = 1, ncol = dim)
-    #index array using a matrix w/1 row, dim # of cols, and each val is an index in the dimension
-    frag_array[dim_matrix] <- frag_array[dim_matrix] + 1
+# need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
+populate_frag_array <- function(dict, frag_array, dim) {
+  for (word in dict) {
+    frags <- explode_word(word)
+    for (frag in frags) {
+      dim_index <- sapply(strsplit(frag,"")[[1]], char_to_num)
+      dim_matrix <- matrix(c(dim_index,rep(1,dim))[1:dim], nrow = 1, ncol = dim)
+      #index array using a matrix w/1 row, dim # of cols, and each val is an index in the dimension
+      frag_array[dim_matrix][[1]] <- c(frag_array[dim_matrix][[1]],word)
+    }
   }
   return(frag_array)
 }
@@ -139,12 +149,9 @@ reset_frag_array <- function(clue_matrix, dim) {
 main <- function(seed, dim){
   clue_matrix <- matrix(strsplit(seed,"")[[1]],nrow=dim,ncol=1,byrow = FALSE)
   clues <- seed
-  profiling_i <- 0
   while(length(clues) != dim){
-    profiling_i <- profiling_i + 1
-    if(profiling_i == 5){return(TRUE)}
     depth <- length(clues) + 1
-    if(depth == dim){
+    if(depth == 2){
       message(paste(length(stack_dict[[2]])))
     }
     search_tpl <- find_word(clue_matrix,stack_dict[[depth]],dim,clues)
@@ -154,7 +161,6 @@ main <- function(seed, dim){
       stack_dict[[depth]] <- score_dict[[depth]]
       depth <- depth-1
       clues <- clues[1:depth-1]
-      reset_frag_array(clue_matrix, dim)
       clue_matrix <- clue_matrix[,c(1:(ncol(clue_matrix)-1))]
     } else {
       stack_dict[[depth]] <- search_tpl[[2]][[1]]
@@ -178,10 +184,9 @@ init_global_vars <- function(seed,dim){
   stack_dict <<- score_dict
 
   frags <<- explode_dict(dict_all)
-  mstr_frag_array <<- array(rep(0,27^dim),rep(27,dim))
-  mstr_frag_array <<- populate_frag_array(frags, mstr_frag_array, dim)
+  mstr_frag_array <<- array(list(NULL),rep(27,dim))
+  mstr_frag_array <<- populate_frag_array(dict_all, mstr_frag_array, dim)
   frag_array <<- mstr_frag_array
-  subtract_frag_array(strsplit(seed,"")[[1]],dim)
 }
 
 # for testing...
