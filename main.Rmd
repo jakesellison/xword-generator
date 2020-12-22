@@ -99,9 +99,6 @@ find_word <- function(clue_matrix,stack_dict,dim,clues){
 #test letter at pos in dict
 subset_dict <- function(word, letter, pos, clues, qword){
   if(word[pos] == letter){
-    if(!FALSE %in% (word == c('l','e','v','e','e')) & length(clues) == 1){
-      browser()
-    }
     FALSE
   } else {
     TRUE
@@ -159,20 +156,22 @@ main <- function(seed, dim){
   clues <- seed
   while(length(clues) != dim){
     depth <- length(clues) + 1
-    if(length(stack_dict) < 5){browser()}
     if(depth == 2){
       message(paste(length(stack_dict[[2]])))
     }
     search_tpl <- find_word(clue_matrix,stack_dict[[depth]],dim,clues)
-    if(search_tpl[[3]][[1]] == FALSE & depth == 2){
-      return(FALSE)
-    } else if (search_tpl[[3]][[1]] == FALSE) {
+    if (search_tpl[[3]][[1]] == FALSE) {
       stack_dict[[depth]] <- score_dict[[depth]]
       depth <- depth-1
-      clues <- clues[1:depth-1]
-      clue_matrix <- clue_matrix[,c(1:(ncol(clue_matrix)-1))]
+      if(depth == 1){
+        rand_word <- sample(stack_dict[[1]], 1, FALSE)[[1]]
+        clue_matrix <- matrix(rand_word,nrow=dim,ncol=1,byrow = FALSE)
+        clues <- paste(rand_word, collapse = "")
+      } else {
+        clues <- clues[1:depth-1]
+        clue_matrix <- clue_matrix[,c(1:(ncol(clue_matrix)-1))]
+      }
     } else {
-      if(is.null(search_tpl[[2]][[1]])){browser()}
       stack_dict[[depth]] <- search_tpl[[2]][[1]]
       clue_matrix <- cbind(clue_matrix, search_tpl[[1]][[1]])
       clues <- append(clues, paste(search_tpl[[1]][[1]],collapse=''))
@@ -201,22 +200,21 @@ init_global_vars <- function(seed,dim){
 
 # for testing...
 
-seed <- 'spasm'
+seed <- 'xxxxxx'
 
-init_global_vars(seed,5)
+init_global_vars(seed,6)
 start_time <- Sys.time()
-main(seed, 5)
+main(seed, 6)
 end_time <- Sys.time()
 end_time - start_time
-
 ```
+
 ```{r}
 start <- Sys.time()
 brute_force(5)
 end <- Sys.time()
 end - start
 ```
-
 
 ```{r}
 puzzle_master <<- c()
