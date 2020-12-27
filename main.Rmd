@@ -116,14 +116,14 @@ read_word <- function(depth, num = 1, dir = 1, type = 'list'){ #if dir = 2, then
   } else {
     col <- clue_matrix[depth,]
   }
-  write_pos <- c()
-  if(!is.na(col[1])){write_pos <- 1}
+  pos <- c()
+  if(!is.na(col[1])){pos <- 1}
   for(i in 2:length(col)) {
     if(!is.na(col[i]) & is.na(col[i-1])) {
-      write_pos <- c(write_pos,i)
+      pos <- c(pos,i)
     }
   }
-  pos <- write_pos[num]
+  pos <- pos[num]
   reader <- c()
   while(!is.na(col[pos]) & pos <= length(col)) {
     reader <- append(reader, col[pos])
@@ -136,7 +136,7 @@ read_word <- function(depth, num = 1, dir = 1, type = 'list'){ #if dir = 2, then
 }
 
 #remove a word from global_var clue_matrix
-rm_word <- function (depth,num = 1) {
+rm_word <- function (depth, num = 1) {
   col <- clue_matrix[,depth]
   rm_pos <- c()
   if(!is.na(col[1])){rm_pos <- 1}
@@ -151,9 +151,82 @@ rm_word <- function (depth,num = 1) {
     pos <- pos + 1
   }
 }
-read_word(depth = 5, num = 1, dir = 2,'list')
-is.na(clue_matrix[3,2])
+```
+
+```{r}
+subset_dict <- function(across, req_char, dict){
+  #get all valid words
+  valid <- c() ; invalid <- c()
+  for(i in 1:length(across)){
+    valid <- append(valid, list(names(frag_hash[[paste(across[i],req_char[i],sep='')]]$valid)))
+  }
+  for (i in 1:length(valid)){
+    dict <- dict[substr(dict,i,i) %in% valid[[i]]]
+  }
+  return(dict)
+}
+
+update_across <- function(depth){
+  across_words <- c()
+  for(i in 1:nrow(clue_matrix)){
+    if(!is.na(clue_matrix[i,depth])) {
+      across_words <- append(across_words, read_word(i, num = 1, dir = 2, type = 'str'))
+    }
+  }
+  return(across_words)
+}
+
+main <- function(){
+  req_char <- rep(dim,dim)
+  down <- read_word(1, num = 1, dir = 1, type = 'str')
+  depth <- 2
+  
+  while(depth <= dim){
+
+    across <- update_across(depth)
+    stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]]) #returns a list of all valid words
+    stack_dict[[depth]][!stack_dict[[depth]] %in% down] #remove existing clues
+    
+    for(i in depth:1){
+      if(rlang::is_empty(stack_dict[[i]])){ #out of dict words at this level
+        stack_dict[[i]] <- mstr_dict[[i]]
+        depth <- depth - 1
+        down <- down[1:(length(down)-1)]
+      } else {
+        if(length(down) != depth-1){browser()}
+        break
+      }
+    }
+    
+    candidate <- stack_dict[[depth]][1]
+    write_word(candidate, depth, num = 1, type = 'str')
+    down <- c(down, candidate)
+    stack_dict[[depth]] <- stack_dict[[depth]][-1] # remove the chosen word from dict
+    depth <- depth + 1
+    if(candidate == 'yummy'){browser()}
+  }
+  return(clue_matrix)
+}
+```
+
+```{r}
+dim<-5
+clue_matrix <- matrix("",nrow=dim,ncol=dim,byrow = FALSE)
+dict_all <<- dict_init(dim)
+stack_dict <<- slice_dict(rep(list(dict_all),dim))
+mstr_dict <<- stack_dict
+#frag_hash <<- populate_frag_hash(dict_all,dim)
+
+seed<-'crash'
+write_word(seed,1,1,'str')
 clue_matrix
+```
+
+```{r}
+start_time <- Sys.time()
+main()
+end_time <- Sys.time()
+end_time - start_time
 ```
 
 ```{r}
@@ -223,11 +296,6 @@ subset_dict <- function(word, letter, pos){
 ```
 
 ```{r}
-#experimenting with memory for time savings
-explode_dict <- function(dict_all){
-  do.call(c,lapply(dict_all, explode_word))
-}
-                   
 explode_word <- function(x){
   split_out <- c()
   for (i in 1:nchar(x)){
@@ -236,19 +304,44 @@ explode_word <- function(x){
   return(split_out)
 }
 
-char_to_num <- function(x){
-  if(x == ""){return(1)}
-  as.numeric(charToRaw(x))-95
-}
-
 # need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
-populate_frag_array <- function(dict) {
+populate_frag_hash <- function(dict,dim) {
+  #initialize
   frag_hash <- hash()
   for (word in dict) {
     frags <- explode_word(word)
     for (frag in frags) {
-      .set(frag_hash, frag, c(frag_hash[[ frag ]],word))
+      for (i in nchar(frag):dim){
+        pathfinder <- list(words = c(), valid = c())
+        .set(frag_hash, paste(frag,i,sep=''), pathfinder)
+      }
     }
+  }
+  #populate
+  for (word in dict) {
+    frags <- explode_word(word)
+    for (frag in frags) {
+      for (i in nchar(frag):dim){
+        if(nchar(word) == i){
+          words_list <- append(frag_hash[[ paste(frag,i,sep='') ]]$words, word)
+          pathfinder <- list(words = words_list, valid = c())
+          .set(frag_hash, paste(frag,i,sep=''), pathfinder)
+        }
+      }
+    }
+  }
+  #calculate
+  keys <- hash::keys(frag_hash)
+  for (key in keys) {
+    next_index <- nchar(gsub("^([a-z]+)+[0-9]+$", "\\1", key))+1
+    words_list <- frag_hash[[ key ]]$words
+    if(is.null(words_list)){
+      valid_list <- NULL
+    } else {
+      valid_list <- table(sapply(words_list, stringi::stri_sub, next_index, next_index))
+    }
+    pathfinder <- list(words = words_list, valid = valid_list)
+    .set(frag_hash, key, pathfinder)
   }
   return(frag_hash)
 }
@@ -293,37 +386,9 @@ main <- function(){
 }
 ```
 
-```{r}
-dim<-7
-clue_matrix <- matrix("",nrow=dim,ncol=dim,byrow = FALSE)
-clue_matrix[1,1] <- NA
-clue_matrix[2,1] <- NA
-clue_matrix[1,2] <- NA
-clue_matrix[7,1] <- NA
-clue_matrix[6,1] <- NA
-clue_matrix[7,2] <- NA
-clue_matrix[1,7] <- NA
-clue_matrix[1,6] <- NA
-clue_matrix[2,7] <- NA
-clue_matrix[7,7] <- NA
-clue_matrix[7,6] <- NA
-clue_matrix[6,7] <- NA
-dict_all <<- dict_init(dim)
-stack_dict <<- slice_dict(rep(list(dict_all),dim))
-stack_dict_mstr <<- stack_dict
-frag_hash <<- populate_frag_array(dict_all)
 
-seed<-'hmm'
-write_word(seed,1,1,'str')
-clue_matrix
-```
 
-```{r}
-start_time <- Sys.time()
-main()
-end_time <- Sys.time()
-end_time - start_time
-```
+
 
 ```{r}
 start <- Sys.time()
