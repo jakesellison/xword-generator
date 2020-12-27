@@ -8,6 +8,7 @@ library(qdapDictionaries)
 library(profvis)
 library(gtools)
 library(hash)
+options(expressions = 500000)
 ```
 
 ```{r}
@@ -33,14 +34,14 @@ scorecard_init <- function(dict, freq, dim){
 }
 
 #initialize the dictionary
-dict_init <- function(dim, wl = NULL){
+dict_init <- function(min, max, wl = NULL){
   if(is.null(wl)){
     full_dict <- qdapDictionaries::DICTIONARY
   } else {
     full_dict <- wl
   }
   dict <- mutate(full_dict, char_num = nchar(word)) %>% 
-    filter(char_num <= dim)
+    filter(between(char_num, min, max))
   dict <- dict$word
   dict <- tolower(dict)
   dict <- dict[stringi::stri_detect_regex(dict,"^[a-z]+$")]
@@ -133,26 +134,20 @@ rm_word <- function (depth, num = 1) {
 
 ```{r}
 subset_dict <- function(across, req_char, dict, down, depth){
+  #browser()
   valid_list <- c()
-  
-  ### no duplicates possible
-  if(rlang::is_empty(down[substr(down,1,1) %in% substr(across,1,1)])){
-    for(i in 1:length(across)){
-      valid_list <- append(valid_list, list(names(frag_hash[[paste(across[i],req_char[i],sep='')]]$valid)))
+  for(i in 1:length(across)){
+    if(across[i] == ''){
+      next
     }
-  }
-  ### if there is a risk of validating a duplicate across word
-  else {
-    for(i in 1:length(across)){
-      words <- frag_hash[[paste(across[i],req_char[i],sep='')]]$words
-      words  <- words[!words %in% down]
-      if(rlang::is_empty(words)) {
-        words <- NA
-      } else {
-        valid <- names(table(sapply(words, stringi::stri_sub, depth, depth)))
-      }
-      valid_list <- append(valid_list, list(valid))
+    words <- frag_hash[[paste(across[i],req_char[i],sep='')]]$words
+    words  <- words[!words %in% down]
+    if(rlang::is_empty(words)) {
+      valid <- NULL
+    } else {
+      valid <- names(table(sapply(words, stringi::stri_sub, nchar(across[i])+1, nchar(across[i])+1)))
     }
+    valid_list <- append(valid_list, list(valid))
   }
   #limit dict to only valid words
   for (i in 1:length(valid_list)){
@@ -164,15 +159,14 @@ subset_dict <- function(across, req_char, dict, down, depth){
 update_across <- function(depth){
   across_words <- c()
   for(i in 1:nrow(clue_matrix)){
-    if(!is.na(clue_matrix[i,depth])) {
-      across_words <- append(across_words, read_word(i, num = 1, dir = 2, type = 'str'))
-    }
+    across_words <- append(across_words, read_word(i, num = 1, dir = 2, type = 'str'))
   }
   return(across_words)
 }
 
 main <- function(){
-  req_char <- rep(dim,dim)
+  #browser()
+  req_char <- apply(clue_matrix, 1, function(x){length(x[!is.na(x)])})
   down <- read_word(1, num = 1, dir = 1, type = 'str')
   depth <- 2
   
@@ -182,7 +176,7 @@ main <- function(){
       message(paste(length(stack_dict[[1]])))
     }
     across <- update_across(depth)
-    stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]],down,depth,greed) #returns a list of all valid words
+    stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]],down,depth) #returns a list of all valid words
     stack_dict[[depth]][!stack_dict[[depth]] %in% down] #remove existing clues
     
     for(i in depth:1){
@@ -208,14 +202,25 @@ main <- function(){
 ```
 
 ```{r}
-dim<-6
+dim<-7
 clue_matrix <- matrix("",nrow=dim,ncol=dim,byrow = FALSE)
-dict_all <<- dict_init(dim)
+clue_matrix[1,1] <- NA
+clue_matrix[1,2] <- NA
+clue_matrix[2,1] <- NA
+clue_matrix[1,7] <- NA
+clue_matrix[2,7] <- NA
+clue_matrix[1,6] <- NA
+clue_matrix[7,1] <- NA
+clue_matrix[7,2] <- NA
+clue_matrix[6,1] <- NA
+clue_matrix[7,7] <- NA
+clue_matrix[7,6] <- NA
+clue_matrix[6,7] <- NA
+dict_all <<- dict_init(3, 7)
 stack_dict <<- slice_dict(rep(list(dict_all),dim))
 mstr_dict <<- stack_dict
-#frag_hash <<- populate_frag_hash(dict_all,dim)
-
-seed<-'tsktsk'
+frag_hash <<- populate_frag_hash(dict_all,dim)
+seed<-'sat'
 write_word(seed,1,1,'str')
 clue_matrix
 ```
