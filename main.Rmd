@@ -178,19 +178,20 @@ main <- function(){
   
   while(depth <= dim){
     
-    if(depth == 1){message(paste(length(stack_dict[[depth]])))}
+    if(depth == 2){
+      message(paste(length(stack_dict[[1]])))
+    }
     across <- update_across(depth)
-    stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]],down,depth) #returns a list of all valid words
+    stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]],down,depth,greed) #returns a list of all valid words
     stack_dict[[depth]][!stack_dict[[depth]] %in% down] #remove existing clues
     
     for(i in depth:1){
       if(rlang::is_empty(stack_dict[[i]])){ #out of dict words at this level
-        if(depth ==1){browser()}
         rm_word(depth,num = 1)
         stack_dict[[i]] <- mstr_dict[[i]]
         depth <- depth - 1
         if(depth == 0) {return(clue_matrix)} #search has failed
-        down <- down[1:(length(down)-1)]
+        down <- down[-length(down)]
       } else {
         break
       }
@@ -207,14 +208,14 @@ main <- function(){
 ```
 
 ```{r}
-dim<-5
+dim<-6
 clue_matrix <- matrix("",nrow=dim,ncol=dim,byrow = FALSE)
 dict_all <<- dict_init(dim)
 stack_dict <<- slice_dict(rep(list(dict_all),dim))
 mstr_dict <<- stack_dict
 #frag_hash <<- populate_frag_hash(dict_all,dim)
 
-seed<-'spasm'
+seed<-'tsktsk'
 write_word(seed,1,1,'str')
 clue_matrix
 ```
