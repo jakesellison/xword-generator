@@ -34,14 +34,14 @@ scorecard_init <- function(dict, freq, dim){
 }
 
 #initialize the dictionary
-dict_init <- function(min, max, wl = NULL){
+dict_init <- function(dims, wl = NULL){
   if(is.null(wl)){
     full_dict <- qdapDictionaries::DICTIONARY
   } else {
     full_dict <- wl
   }
   dict <- mutate(full_dict, char_num = nchar(word)) %>% 
-    filter(between(char_num, min, max))
+    filter(char_num %in% dims)
   dict <- dict$word
   dict <- tolower(dict)
   dict <- dict[stringi::stri_detect_regex(dict,"^[a-z]+$")]
@@ -64,6 +64,67 @@ freq_init <- function(dict){
   freq <- t(data.frame(lapply(dict, strsplit, "")))
   freq <- apply(freq, 2, function(x){data.frame(table(x)[order(table(x), decreasing = TRUE)])})
   return(freq)
+}
+```
+
+```{r}
+explode_word <- function(x){
+  split_out <- c()
+  for (i in 1:nchar(x)){
+    split_out <- append(split_out, substr(x,1,i))
+  }
+  return(split_out)
+}
+
+slice_dict <- function(dict){
+  stack_dict <- c()
+  col_lengths <- apply(clue_matrix, 2, function(x){length(x[!is.na(x)])})
+  for(i in 1:ncol(clue_matrix)){
+    stack_dict <- append(stack_dict, list(dict[[i]][nchar(dict[[i]]) == col_lengths[i]]))
+  }
+  return(stack_dict)
+}
+
+# need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
+populate_frag_hash <- function(dict,dim) {
+  #initialize
+  frag_hash <- hash()
+  for (word in dict) {
+    frags <- explode_word(word)
+    for (frag in frags) {
+      for (i in nchar(frag):dim){
+        pathfinder <- list(words = c(), valid = c())
+        .set(frag_hash, paste(frag,i,sep=''), pathfinder)
+      }
+    }
+  }
+  #populate
+  for (word in dict) {
+    frags <- explode_word(word)
+    for (frag in frags) {
+      for (i in nchar(frag):dim){
+        if(nchar(word) == i){
+          words_list <- append(frag_hash[[ paste(frag,i,sep='') ]]$words, word)
+          pathfinder <- list(words = words_list, valid = c())
+          .set(frag_hash, paste(frag,i,sep=''), pathfinder)
+        }
+      }
+    }
+  }
+  #calculate
+  keys <- hash::keys(frag_hash)
+  for (key in keys) {
+    next_index <- nchar(gsub("^([a-z]+)+[0-9]+$", "\\1", key))+1
+    words_list <- frag_hash[[ key ]]$words
+    if(is.null(words_list)){
+      valid_list <- NULL
+    } else {
+      valid_list <- table(sapply(words_list, stringi::stri_sub, next_index, next_index))
+    }
+    pathfinder <- list(words = words_list, valid = valid_list)
+    .set(frag_hash, key, pathfinder)
+  }
+  return(frag_hash)
 }
 ```
 
@@ -165,7 +226,6 @@ update_across <- function(depth){
 }
 
 main <- function(){
-  #browser()
   req_char <- apply(clue_matrix, 1, function(x){length(x[!is.na(x)])})
   down <- read_word(1, num = 1, dir = 1, type = 'str')
   depth <- 2
@@ -202,25 +262,34 @@ main <- function(){
 ```
 
 ```{r}
-dim<-7
+dim<-5
 clue_matrix <- matrix("",nrow=dim,ncol=dim,byrow = FALSE)
-clue_matrix[1,1] <- NA
-clue_matrix[1,2] <- NA
-clue_matrix[2,1] <- NA
-clue_matrix[1,7] <- NA
-clue_matrix[2,7] <- NA
-clue_matrix[1,6] <- NA
-clue_matrix[7,1] <- NA
-clue_matrix[7,2] <- NA
-clue_matrix[6,1] <- NA
-clue_matrix[7,7] <- NA
-clue_matrix[7,6] <- NA
-clue_matrix[6,7] <- NA
-dict_all <<- dict_init(3, 7)
+dict_all <<- dict_init(c(5))
 stack_dict <<- slice_dict(rep(list(dict_all),dim))
 mstr_dict <<- stack_dict
 frag_hash <<- populate_frag_hash(dict_all,dim)
-seed<-'sat'
+# clue_matrix[1,1] <- NA
+# clue_matrix[5,5] <- NA
+# clue_matrix[1,2] <- NA
+# clue_matrix[1,5] <- NA
+# clue_matrix[1,6] <- NA
+# clue_matrix[6,6] <- NA
+# clue_matrix[6,5] <- NA
+# clue_matrix[6,1] <- NA
+# clue_matrix[6,2] <- NA
+# clue_matrix[1,2] <- NA
+# clue_matrix[2,1] <- NA
+# clue_matrix[1,7] <- NA
+# clue_matrix[2,7] <- NA
+# clue_matrix[1,6] <- NA
+# clue_matrix[7,1] <- NA
+# clue_matrix[7,2] <- NA
+# clue_matrix[6,1] <- NA
+# clue_matrix[7,7] <- NA
+# clue_matrix[7,6] <- NA
+# clue_matrix[6,7] <- NA
+
+seed<-'light'
 write_word(seed,1,1,'str')
 clue_matrix
 ```
@@ -232,63 +301,3 @@ end_time <- Sys.time()
 end_time - start_time
 ```
 
-```{r}
-explode_word <- function(x){
-  split_out <- c()
-  for (i in 1:nchar(x)){
-    split_out <- append(split_out, substr(x,1,i))
-  }
-  return(split_out)
-}
-
-slice_dict <- function(dict){
-  stack_dict <- c()
-  col_lengths <- apply(clue_matrix, 2, function(x){length(x[!is.na(x)])})
-  for(i in 1:ncol(clue_matrix)){
-    stack_dict <- append(stack_dict, list(dict[[i]][nchar(dict[[i]]) == col_lengths[i]]))
-  }
-  return(stack_dict)
-}
-
-# need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
-populate_frag_hash <- function(dict,dim) {
-  #initialize
-  frag_hash <- hash()
-  for (word in dict) {
-    frags <- explode_word(word)
-    for (frag in frags) {
-      for (i in nchar(frag):dim){
-        pathfinder <- list(words = c(), valid = c())
-        .set(frag_hash, paste(frag,i,sep=''), pathfinder)
-      }
-    }
-  }
-  #populate
-  for (word in dict) {
-    frags <- explode_word(word)
-    for (frag in frags) {
-      for (i in nchar(frag):dim){
-        if(nchar(word) == i){
-          words_list <- append(frag_hash[[ paste(frag,i,sep='') ]]$words, word)
-          pathfinder <- list(words = words_list, valid = c())
-          .set(frag_hash, paste(frag,i,sep=''), pathfinder)
-        }
-      }
-    }
-  }
-  #calculate
-  keys <- hash::keys(frag_hash)
-  for (key in keys) {
-    next_index <- nchar(gsub("^([a-z]+)+[0-9]+$", "\\1", key))+1
-    words_list <- frag_hash[[ key ]]$words
-    if(is.null(words_list)){
-      valid_list <- NULL
-    } else {
-      valid_list <- table(sapply(words_list, stringi::stri_sub, next_index, next_index))
-    }
-    pathfinder <- list(words = words_list, valid = valid_list)
-    .set(frag_hash, key, pathfinder)
-  }
-  return(frag_hash)
-}
-```
