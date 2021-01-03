@@ -12,58 +12,18 @@ options(expressions = 500000)
 ```
 
 ```{r}
-#compute the score of a word by the weighting of the table
-score_word <- function(word,freq){
-  char_list <- strsplit(word,"")[[1]]
-  score<-c(rep(0,length(char_list)))
-  for (i in 1:length(char_list)){
-    for (j in 1:length(char_list)) {
-      score[i] <- score[i] + freq[[i]][match(char_list[[j]], freq[[i]]$x),2]
-    }
-  }
-  return(score)
-}
-
-#score every word based on frequency of letter positions
-scorecard_init <- function(dict, freq, dim){
-  scorecard <- data.frame(cbind(dict, do.call(rbind, data.frame(lapply(dict, score_word, freq)))))
-  #rownames(scorecard) <- NULL
-  #scorecard$word <- as.character(scorecard$word)
-  scorecard <- scorecard %>% mutate_at(c(1:dim+1),function(x){as.numeric(as.character(x))})
-  return(scorecard)
-}
-
 #initialize the dictionary
-dict_init <- function(dims, wl = NULL){
-  if(is.null(wl)){
-    full_dict <- qdapDictionaries::DICTIONARY
-  } else {
-    full_dict <- wl
+dict_init <- function(word_len_list){
+  dict <- qdapDictionaries::DICTIONARY
+  dict <- dict %>% 
+    mutate(char_num = nchar(word),
+           word = tolower(word)) %>% 
+    filter(stringi::stri_detect_regex(dict$word,"^[a-z]+$"))
+  stack_dict <- c()
+  for (k in 1:length(word_len_list)) {
+    stack_dict <- append(stack_dict, list(sample(filter(dict, char_num == word_len_list[k])$word)))
   }
-  dict <- mutate(full_dict, char_num = nchar(word)) %>% 
-    filter(char_num %in% dims)
-  dict <- dict$word
-  dict <- tolower(dict)
-  dict <- dict[stringi::stri_detect_regex(dict,"^[a-z]+$")]
-  return(dict)
-}
-
-#for each column in the puzzle, create a dict list ordered by score
-gen_score_dict <- function(scorecard) {
-  scored_dict <- c()
-  for(i in 1:(ncol(scorecard)-1)) {
-    score_col <- data.frame(word = scorecard[,1], score = scorecard[,i+1]) %>% 
-      arrange(desc(score))
-    scored_dict <- append(scored_dict,list(as.character(score_col[,1])))
-  }
-  return(lapply(scored_dict, function(x){lapply(x, function(y){strsplit(y,"")[[1]]})}))
-}
- 
-#generate a frequency table showing how likely a given word is to appear in a square
-freq_init <- function(dict){
-  freq <- t(data.frame(lapply(dict, strsplit, "")))
-  freq <- apply(freq, 2, function(x){data.frame(table(x)[order(table(x), decreasing = TRUE)])})
-  return(freq)
+  return(stack_dict)
 }
 ```
 
@@ -86,13 +46,14 @@ slice_dict <- function(dict){
 }
 
 # need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
-populate_frag_hash <- function(dict,dim) {
+populate_frag_hash <- function(stack_dict) {
   #initialize
   frag_hash <- hash()
+  dict <- unique(unlist(stack_dict))
   for (word in dict) {
     frags <- explode_word(word)
     for (frag in frags) {
-      for (i in nchar(frag):dim){
+      for (i in nchar(frag):dims){
         pathfinder <- list(words = c(), valid = c())
         .set(frag_hash, paste(frag,i,sep=''), pathfinder)
       }
@@ -102,7 +63,7 @@ populate_frag_hash <- function(dict,dim) {
   for (word in dict) {
     frags <- explode_word(word)
     for (frag in frags) {
-      for (i in nchar(frag):dim){
+      for (i in nchar(frag):dims){
         if(nchar(word) == i){
           words_list <- append(frag_hash[[ paste(frag,i,sep='') ]]$words, word)
           pathfinder <- list(words = words_list, valid = c())
@@ -129,73 +90,135 @@ populate_frag_hash <- function(dict,dim) {
 ```
 
 ```{r}
-#writes a word to global_var clue_matrix
-write_word <- function(word, depth, num = 1, type = 'list'){
-  if (type == 'str') {
-    word <- strsplit(word,"")[[1]]
-  }
-  col <- clue_matrix[,depth]
-  write_pos <- c()
-  if(!is.na(col[1])){write_pos <- 1}
-  for(i in 2:length(col)) {
-    if(!is.na(col[i]) & is.na(col[i-1])) {
-      write_pos <- c(write_pos,i)
-    }
-  }
-  pos <- write_pos[num]
-  for (i in 1:length(word)) {
-    clue_matrix[pos,depth] <<- word[i]
-    pos <- pos + 1
-  }
-}
-
-#reads a word from global_var clue_matrix
-read_word <- function(depth, num = 1, dir = 1, type = 'list'){ #if dir = 2, then read across
-  if(dir == 1) {
-    col <- clue_matrix[,depth]
-  } else {
-    col <- clue_matrix[depth,]
-  }
-  pos <- c()
-  if(!is.na(col[1])){pos <- 1}
-  for(i in 2:length(col)) {
-    if(!is.na(col[i]) & is.na(col[i-1])) {
-      pos <- c(pos,i)
-    }
-  }
-  pos <- pos[num]
-  reader <- c()
-  while(!is.na(col[pos]) & pos <= length(col)) {
-    reader <- append(reader, col[pos])
-    pos <- pos + 1
-  }
+write_word <- function(word, depth, type = 'str'){
+  #browser()
   if(type == 'str'){
-    reader <- paste(reader, collapse ='')
+    word <- strsplit(word, "")[[1]]
   }
-  return(reader)
-}
-
-#remove a word from global_var clue_matrix
-rm_word <- function (depth, num = 1) {
-  col <- clue_matrix[,depth]
-  rm_pos <- c()
-  if(!is.na(col[1])){rm_pos <- 1}
-  for(i in 2:length(col)) {
-    if(!is.na(col[i]) & is.na(col[i-1])) {
-      rm_pos <- c(rm_pos,i)
+  for(i in depth:length(puzz)){
+    if(!is.na(puzz[i]) & puzz[i] == "?"){
+      depth <- i
+      break
     }
   }
-  pos <- rm_pos[num]
-  while(!is.na(col[pos]) & pos <= length(col)) {
-    clue_matrix[pos,depth] <<- ""
-    pos <- pos + 1
+  for(i in 0:(length(word)-1)){
+    puzz[i+depth] <<- word[i+1]
   }
+  return(depth+i)
 }
+
+rm_word <- function(depth){
+  #browser()
+  rm_to <- depth - ((depth-1) %% dims)
+  for(i in depth:rm_to){
+    if(is.na(puzz[i])){
+      i <- i + 1
+      break
+    } else {
+      puzz[i] <<- "?"
+    }
+  }
+  return(i-1)
+}
+
+#read all across words through 
+read_across <- function(depth){
+  return(unlist(lapply(seq(1,dims), function(x){
+    #browser()
+    row <- puzz[seq(x,length(puzz),dims)]
+    row <- unlist(strsplit(paste(row,collapse=''),'NA'))
+    tot_length <- 0
+    for(i in 1:length(row)){
+      tot_length <- tot_length + nchar(row[i])
+      if(tot_length > ceiling(depth/dims)){
+        return(row[i])
+      }
+    }
+  })))
+}
+
+length(m)
+puzz <<-c(NA,2,3,4,NA,6,7,8,NA)
+read_across(3)
+
+
+puzz
+depth <- 6
+puzz[seq(3,depth,3)]
+
+# depth <- 1
+# dims <<- 3
+# depth <- write_word('xx', depth, 'str')
+# puzz
+# rm_word(8)
+# puzz <<-c(NA,'','','',NA,'','','',NA)
+# puzz
+# #writes a word to global_var clue_matrix
+# write_word <- function(word, depth, type = 'list'){
+#   if (type == 'str') {
+#     word <- strsplit(word,"")[[1]]
+#   }
+#   col <- clue_matrix[,depth]
+#   write_pos <- 0
+#   for(i in 1:length(col)){
+#     if(!is.na(col[i]) & col[i] == "") {
+#       break
+#     }
+#   }
+#   pos <- i
+#   for (i in 1:length(word)) {
+#     clue_matrix[pos,depth] <<- word[i]
+#     pos <- pos + 1
+#   }
+# }
+# 
+# #reads a word from global_var clue_matrix
+# read_word <- function(depth, dir = 1, type = 'list'){ #if dir = 2, then read across
+#   if(dir == 1) {
+#     col <- clue_matrix[,depth]
+#   } else {
+#     col <- clue_matrix[depth,]
+#   }
+#   for(i in (length(col)-1):1){
+#     if(is.na(col[i]) & col[i+1] != "") {
+#       i <- i+1
+#       break
+#     }
+#   }
+#   pos <- i
+#   reader <- c()
+#   while(!is.na(col[pos]) & pos <= length(col) & col[pos] != "") {
+#     reader <- append(reader, col[pos])
+#     pos <- pos + 1
+#   }
+#   if(type == 'str'){
+#     reader <- paste(reader, collapse ='')
+#   }
+#   return(reader)
+# }
+# 
+# #remove a word from global_var clue_matrix
+# rm_word <- function (depth) {
+#   col <- clue_matrix[,depth]
+#   for(i in length(col):1){
+#     if(is.na(col[i]) & col[i+1] != "") {
+#       i <- i+1
+#       break
+#     }
+#   }
+#   rm_pos <- i
+#   while(!is.na(col[rm_pos]) & rm_pos <= length(col)) {
+#     clue_matrix[rm_pos,depth] <<- ""
+#     rm_pos <- rm_pos + 1
+#   }
+# }
 ```
 
 ```{r}
 subset_dict <- function(across, req_char, dict, down, depth){
-  #browser()
+  browser()
+  req_char <- sapply(across, length)
+  across <- sapply(across, function(x){x[x!='?']})
   valid_list <- c()
   for(i in 1:length(across)){
     if(across[i] == ''){
@@ -217,81 +240,44 @@ subset_dict <- function(across, req_char, dict, down, depth){
   return(dict)
 }
 
-update_across <- function(depth){
-  across_words <- c()
-  for(i in 1:nrow(clue_matrix)){
-    across_words <- append(across_words, read_word(i, num = 1, dir = 2, type = 'str'))
-  }
-  return(across_words)
-}
-
 main <- function(){
-  req_char <- apply(clue_matrix, 1, function(x){length(x[!is.na(x)])})
-  down <- read_word(1, num = 1, dir = 1, type = 'str')
-  depth <- 2
-  
-  while(depth <= dim){
+  browser()
+  while(depth <= length(stack_dict)){ #depth is the index progress through stack_dict
     
     if(depth == 2){
       message(paste(length(stack_dict[[1]])))
     }
-    across <- update_across(depth)
+    across <- read_across(depth)
     stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]],down,depth) #returns a list of all valid words
     stack_dict[[depth]][!stack_dict[[depth]] %in% down] #remove existing clues
     
     for(i in depth:1){
       if(rlang::is_empty(stack_dict[[i]])){ #out of dict words at this level
-        rm_word(depth,num = 1)
         stack_dict[[i]] <- mstr_dict[[i]]
-        depth <- depth - 1
+        depth <- rm_word(depth)
         if(depth == 0) {return(clue_matrix)} #search has failed
         down <- down[-length(down)]
       } else {
         break
       }
     }
-    
     candidate <- stack_dict[[depth]][1]
-    write_word(candidate, depth, num = 1, type = 'str')
-    down <- c(down, candidate)
     stack_dict[[depth]] <- stack_dict[[depth]][-1] # remove the chosen word from dict
-    depth <- depth + 1
+    depth <- write_word(candidate, depth, type = 'str')
+    down <- c(down, candidate)
   }
   return(clue_matrix)
 }
 ```
 
 ```{r}
-dim<-5
-clue_matrix <- matrix("",nrow=dim,ncol=dim,byrow = FALSE)
-dict_all <<- dict_init(c(5))
-stack_dict <<- slice_dict(rep(list(dict_all),dim))
+dims<<-3
+puzz <<- rep("?",9)
+depth <<- write_word('war', 1, type = 'str')
+stack_dict <<- dict_init(c(3,3,3))
 mstr_dict <<- stack_dict
-frag_hash <<- populate_frag_hash(dict_all,dim)
-# clue_matrix[1,1] <- NA
-# clue_matrix[5,5] <- NA
-# clue_matrix[1,2] <- NA
-# clue_matrix[1,5] <- NA
-# clue_matrix[1,6] <- NA
-# clue_matrix[6,6] <- NA
-# clue_matrix[6,5] <- NA
-# clue_matrix[6,1] <- NA
-# clue_matrix[6,2] <- NA
-# clue_matrix[1,2] <- NA
-# clue_matrix[2,1] <- NA
-# clue_matrix[1,7] <- NA
-# clue_matrix[2,7] <- NA
-# clue_matrix[1,6] <- NA
-# clue_matrix[7,1] <- NA
-# clue_matrix[7,2] <- NA
-# clue_matrix[6,1] <- NA
-# clue_matrix[7,7] <- NA
-# clue_matrix[7,6] <- NA
-# clue_matrix[6,7] <- NA
-
-seed<-'light'
-write_word(seed,1,1,'str')
-clue_matrix
+frag_hash <<- populate_frag_hash(stack_dict)
+puzz
 ```
 
 ```{r}
