@@ -48,8 +48,10 @@ slice_dict <- function(dict){
 # need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
 populate_frag_hash <- function(stack_dict) {
   #initialize
+  dict <- qdapDictionaries::DICTIONARY %>% 
+    filter(nchar(word) < dims)
+  dict <- dict$word
   frag_hash <- hash()
-  dict <- unique(unlist(stack_dict))
   for (word in dict) {
     frags <- explode_word(word)
     for (frag in frags) {
@@ -104,11 +106,24 @@ write_word <- function(word, depth, type = 'str'){
   for(i in 0:(length(word)-1)){
     puzz[i+depth] <<- word[i+1]
   }
-  return(depth+i)
+  depth <- depth + i
+  for(i in depth:length(puzz)){
+    if(!is.na(puzz[i]) & puzz[i] == "?"){
+      depth <- i
+      break
+    }
+  }
+  return(depth)
 }
 
 rm_word <- function(depth){
   #browser()
+  for(i in depth:0){
+    if(!is.na(puzz[i]) & puzz[i] != "?"){
+      depth <- i
+      break
+    }
+  }
   rm_to <- depth - ((depth-1) %% dims)
   for(i in depth:rm_to){
     if(is.na(puzz[i])){
@@ -118,112 +133,46 @@ rm_word <- function(depth){
       puzz[i] <<- "?"
     }
   }
-  return(i-1)
+  depth <- i
+  for(i in depth:length(puzz)){
+    if(!is.na(puzz[i]) & puzz[i] == "?"){
+      depth <- i
+      break
+    }
+  }
+  return(depth)
 }
 
 #read all across words through 
-read_across <- function(depth){
+read_across <- function(){
   return(unlist(lapply(seq(1,dims), function(x){
-    #browser()
+    index <- ceiling((depth+1)/dims)
     row <- puzz[seq(x,length(puzz),dims)]
+    if(!is.na(row[index])){
+      row[index] <- paste(row[index],'^',sep='')
+    } else {
+      return("")
+    }
     row <- unlist(strsplit(paste(row,collapse=''),'NA'))
-    tot_length <- 0
     for(i in 1:length(row)){
-      tot_length <- tot_length + nchar(row[i])
-      if(tot_length > ceiling(depth/dims)){
-        return(row[i])
+      if(stringi::stri_detect_fixed(row[i], "^")){
+        return(gsub('^',"",row[i],fixed=TRUE))
       }
     }
   })))
 }
-
-length(m)
-puzz <<-c(NA,2,3,4,NA,6,7,8,NA)
-read_across(3)
-
-
-puzz
-depth <- 6
-puzz[seq(3,depth,3)]
-
-# depth <- 1
-# dims <<- 3
-# depth <- write_word('xx', depth, 'str')
-# puzz
-# rm_word(8)
-# puzz <<-c(NA,'','','',NA,'','','',NA)
-# puzz
-# #writes a word to global_var clue_matrix
-# write_word <- function(word, depth, type = 'list'){
-#   if (type == 'str') {
-#     word <- strsplit(word,"")[[1]]
-#   }
-#   col <- clue_matrix[,depth]
-#   write_pos <- 0
-#   for(i in 1:length(col)){
-#     if(!is.na(col[i]) & col[i] == "") {
-#       break
-#     }
-#   }
-#   pos <- i
-#   for (i in 1:length(word)) {
-#     clue_matrix[pos,depth] <<- word[i]
-#     pos <- pos + 1
-#   }
-# }
-# 
-# #reads a word from global_var clue_matrix
-# read_word <- function(depth, dir = 1, type = 'list'){ #if dir = 2, then read across
-#   if(dir == 1) {
-#     col <- clue_matrix[,depth]
-#   } else {
-#     col <- clue_matrix[depth,]
-#   }
-#   for(i in (length(col)-1):1){
-#     if(is.na(col[i]) & col[i+1] != "") {
-#       i <- i+1
-#       break
-#     }
-#   }
-#   pos <- i
-#   reader <- c()
-#   while(!is.na(col[pos]) & pos <= length(col) & col[pos] != "") {
-#     reader <- append(reader, col[pos])
-#     pos <- pos + 1
-#   }
-#   if(type == 'str'){
-#     reader <- paste(reader, collapse ='')
-#   }
-#   return(reader)
-# }
-# 
-# #remove a word from global_var clue_matrix
-# rm_word <- function (depth) {
-#   col <- clue_matrix[,depth]
-#   for(i in length(col):1){
-#     if(is.na(col[i]) & col[i+1] != "") {
-#       i <- i+1
-#       break
-#     }
-#   }
-#   rm_pos <- i
-#   while(!is.na(col[rm_pos]) & rm_pos <= length(col)) {
-#     clue_matrix[rm_pos,depth] <<- ""
-#     rm_pos <- rm_pos + 1
-#   }
-# }
 ```
 
 ```{r}
 subset_dict <- function(across, req_char, dict, down, depth){
-  browser()
-  req_char <- sapply(across, length)
-  across <- sapply(across, function(x){x[x!='?']})
+  #browser()
+  start_index <- ifelse(depth %% dims == 0, dims, depth %% dims)
+  end_index <- start_index+nchar(dict[1])-1
+  across <- across[start_index:end_index]
+  req_char <- sapply(across, nchar)
+  across <- sapply(across, function(x){gsub('?','',x,fixed=TRUE)})
   valid_list <- c()
   for(i in 1:length(across)){
-    if(across[i] == ''){
-      next
-    }
     words <- frag_hash[[paste(across[i],req_char[i],sep='')]]$words
     words  <- words[!words %in% down]
     if(rlang::is_empty(words)) {
@@ -235,49 +184,62 @@ subset_dict <- function(across, req_char, dict, down, depth){
   }
   #limit dict to only valid words
   for (i in 1:length(valid_list)){
+    if(is.null(valid_list[[i]])){
+      next
+    }
     dict <- dict[substr(dict,i,i) %in% valid_list[[i]]]
   }
   return(dict)
 }
 
 main <- function(){
-  browser()
-  while(depth <= length(stack_dict)){ #depth is the index progress through stack_dict
+  #browser()
+  down <- 'sat'
+  puz_col <- 1
+  while(length(down) != length(stack_dict)){ #depth is the index progress through stack_dict
     
     if(depth == 2){
       message(paste(length(stack_dict[[1]])))
     }
-    across <- read_across(depth)
-    stack_dict[[depth]] <- subset_dict(across,req_char,stack_dict[[depth]],down,depth) #returns a list of all valid words
-    stack_dict[[depth]][!stack_dict[[depth]] %in% down] #remove existing clues
+    puz_col <- puz_col + 1
+    across <- read_across()
+    stack_dict[[puz_col]] <- subset_dict(across,req_char,stack_dict[[puz_col]],down,depth) #returns a list of all valid words
+    stack_dict[[puz_col]][!stack_dict[[puz_col]] %in% down] #remove existing clues
     
-    for(i in depth:1){
+    for(i in puz_col:1){
       if(rlang::is_empty(stack_dict[[i]])){ #out of dict words at this level
         stack_dict[[i]] <- mstr_dict[[i]]
-        depth <- rm_word(depth)
+        depth <<- rm_word(depth)
+        puz_col <- puz_col - 1
         if(depth == 0) {return(clue_matrix)} #search has failed
         down <- down[-length(down)]
       } else {
         break
       }
     }
-    candidate <- stack_dict[[depth]][1]
-    stack_dict[[depth]] <- stack_dict[[depth]][-1] # remove the chosen word from dict
-    depth <- write_word(candidate, depth, type = 'str')
+    candidate <- stack_dict[[puz_col]][1]
+    stack_dict[[puz_col]] <- stack_dict[[puz_col]][-1] # remove the chosen word from dict
+    depth <<- write_word(candidate, depth, type = 'str')
     down <- c(down, candidate)
   }
-  return(clue_matrix)
+  return(puzz)
 }
 ```
 
 ```{r}
-dims<<-3
-puzz <<- rep("?",9)
-depth <<- write_word('war', 1, type = 'str')
-stack_dict <<- dict_init(c(3,3,3))
+dims<<-6
+puzz <<- c('?','?','?','?',NA,NA,
+           '?','?','?','?','?','?',
+           '?','?',NA,'?','?','?',
+           '?','?','?',NA,'?','?',
+           '?','?','?','?','?','?',
+           NA,NA,'?','?','?','?')
+depth <<- write_word('star', 1, type = 'str')
+stack_dict <<- dict_init(c(4,6,2,3,3,2,6,4))
 mstr_dict <<- stack_dict
 frag_hash <<- populate_frag_hash(stack_dict)
 puzz
+read_across()
 ```
 
 ```{r}
