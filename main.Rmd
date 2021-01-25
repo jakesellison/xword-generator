@@ -8,17 +8,65 @@ library(qdapDictionaries)
 library(profvis)
 library(gtools)
 library(hash)
+library(readxl)
+library(tcltk)
 options(expressions = 500000)
 ```
+
+```{r}
+get_grid <- function(){
+  grid <- readxl::read_xlsx('C:\\Users\\jakes\\Documents\\R\\xword-generator\\xword_grid.xlsx', col_names = FALSE)
+  puzz <- c()
+  for(i in 1:ncol(grid)){
+    puzz <- c(puzz, unlist(grid[,i]))
+  }
+  return(unname(puzz))
+}
+
+get_word_lens <- function(){
+  grid <- readxl::read_xlsx('C:\\Users\\jakes\\Documents\\R\\xword-generator\\xword_grid.xlsx', col_names = FALSE)
+  word_lens <- c()
+  list <- c()
+  for(i in 1:ncol(grid)){
+    for(element in grid[,i]){
+      list <- sapply(strsplit(paste(element,collapse=''),'NA'),nchar)
+    }
+    word_lens <- c(word_lens, list)
+  }
+  return(word_lens[word_lens != 0])
+}
+
+format_puzzle <- function(){
+  tail <- 1
+  head <- 1
+  mat <- matrix(NA, ncol = 1, nrow = dims)
+  for(i in 1:length(puzz)){
+    if(i %% dims == 0){
+      head <- i
+      mat <- cbind(mat, puzz[tail:head])
+      tail <- i+1
+    }
+  }
+  return(mat[,2:ncol(mat)])
+}
+```
+
 
 ```{r}
 #initialize the dictionary
 dict_init <- function(word_len_list){
   dict <- qdapDictionaries::DICTIONARY
+  pb_words <- read.delim('peter-broda-wordlist__scored.txt')
+  pb_words <- data.frame(do.call(rbind, sapply(pb_words, strsplit, ";"))) %>% 
+    dplyr::rename('word' = 'X1', 'score' = 'X2') %>% 
+    filter(score > 75)
+  dict <- bind_rows(dict,pb_words) %>% 
+    select(word) %>%
+    distinct(word)
   dict <- dict %>% 
     mutate(char_num = nchar(word),
            word = tolower(word)) %>% 
-    filter(stringi::stri_detect_regex(dict$word,"^[a-z]+$"))
+    filter(stringi::stri_detect_regex(word,"^[a-z]+$"))
   stack_dict <- c()
   for (k in 1:length(word_len_list)) {
     stack_dict <- append(stack_dict, list(sample(filter(dict, char_num == word_len_list[k])$word)))
@@ -46,46 +94,28 @@ slice_dict <- function(dict){
 }
 
 # need this to be an n-dimensional array, where at each index, I have saved a list of all possible words that start with the fragment represented by that index.
-populate_frag_hash <- function(stack_dict) {
+populate_frag_hash <- function(x) {
   #initialize
   dict <- qdapDictionaries::DICTIONARY %>% 
-    filter(nchar(word) < dims)
+    filter(nchar(word) %in% x)
   dict <- dict$word
   frag_hash <- hash()
   for (word in dict) {
     frags <- explode_word(word)
     for (frag in frags) {
-      for (i in nchar(frag):dims){
-        pathfinder <- list(words = c(), valid = c())
-        .set(frag_hash, paste(frag,i,sep=''), pathfinder)
-      }
+      pathfinder <- list(words = c())
+      .set(frag_hash, frag, pathfinder)
     }
   }
   #populate
+  #browser()
   for (word in dict) {
     frags <- explode_word(word)
     for (frag in frags) {
-      for (i in nchar(frag):dims){
-        if(nchar(word) == i){
-          words_list <- append(frag_hash[[ paste(frag,i,sep='') ]]$words, word)
-          pathfinder <- list(words = words_list, valid = c())
-          .set(frag_hash, paste(frag,i,sep=''), pathfinder)
-        }
-      }
+      words_list <- append(frag_hash[[ frag ]]$words, word)
+      pathfinder <- list(words = words_list, valid = c())
+      .set(frag_hash, frag, pathfinder)
     }
-  }
-  #calculate
-  keys <- hash::keys(frag_hash)
-  for (key in keys) {
-    next_index <- nchar(gsub("^([a-z]+)+[0-9]+$", "\\1", key))+1
-    words_list <- frag_hash[[ key ]]$words
-    if(is.null(words_list)){
-      valid_list <- NULL
-    } else {
-      valid_list <- table(sapply(words_list, stringi::stri_sub, next_index, next_index))
-    }
-    pathfinder <- list(words = words_list, valid = valid_list)
-    .set(frag_hash, key, pathfinder)
   }
   return(frag_hash)
 }
@@ -171,14 +201,22 @@ subset_dict <- function(across, req_char, dict, down, depth){
   across <- across[start_index:end_index]
   req_char <- sapply(across, nchar)
   across <- sapply(across, function(x){gsub('?','',x,fixed=TRUE)})
+  if(rlang::is_empty(across[across != ""])){
+    return(dict)
+  }
   valid_list <- c()
   for(i in 1:length(across)){
-    words <- frag_hash[[paste(across[i],req_char[i],sep='')]]$words
-    words  <- words[!words %in% down]
-    if(rlang::is_empty(words)) {
+    if(across[i] == ''){
       valid <- NULL
     } else {
-      valid <- names(table(sapply(words, stringi::stri_sub, nchar(across[i])+1, nchar(across[i])+1)))
+      words <- frag_hash[[ across[i] ]]$words
+      words <- words[nchar(words) == req_char[i]]
+      words  <- words[!words %in% down]
+      if(rlang::is_empty(words)){
+        valid <- ""
+      } else {
+        valid <- names(table(sapply(words, stringi::stri_sub, nchar(across[i])+1, nchar(across[i])+1)))
+      }
     }
     valid_list <- append(valid_list, list(valid))
   }
@@ -192,16 +230,11 @@ subset_dict <- function(across, req_char, dict, down, depth){
   return(dict)
 }
 
-main <- function(){
+main <- function(seed){
   #browser()
-  down <- 'sat'
   puz_col <- 1
+  down <- c()
   while(length(down) != length(stack_dict)){ #depth is the index progress through stack_dict
-    
-    if(depth == 2){
-      message(paste(length(stack_dict[[1]])))
-    }
-    puz_col <- puz_col + 1
     across <- read_across()
     stack_dict[[puz_col]] <- subset_dict(across,req_char,stack_dict[[puz_col]],down,depth) #returns a list of all valid words
     stack_dict[[puz_col]][!stack_dict[[puz_col]] %in% down] #remove existing clues
@@ -221,31 +254,37 @@ main <- function(){
     stack_dict[[puz_col]] <- stack_dict[[puz_col]][-1] # remove the chosen word from dict
     depth <<- write_word(candidate, depth, type = 'str')
     down <- c(down, candidate)
+    puz_col <- puz_col + 1
   }
   return(puzz)
 }
 ```
 
 ```{r}
-dims<<-6
-puzz <<- c('?','?','?','?',NA,NA,
-           '?','?','?','?','?','?',
-           '?','?',NA,'?','?','?',
-           '?','?','?',NA,'?','?',
-           '?','?','?','?','?','?',
-           NA,NA,'?','?','?','?')
-depth <<- write_word('star', 1, type = 'str')
-stack_dict <<- dict_init(c(4,6,2,3,3,2,6,4))
+dims<<-15
+puzz <- get_grid()
+word_lens <- get_word_lens()
+stack_dict <<- dict_init(word_lens)
 mstr_dict <<- stack_dict
-frag_hash <<- populate_frag_hash(stack_dict)
+#frag_hash <<- populate_frag_hash(unique(word_lens))
+depth<<-1
 puzz
-read_across()
 ```
 
 ```{r}
 start_time <- Sys.time()
-main()
+main(seed)
 end_time <- Sys.time()
 end_time - start_time
 ```
+
+```{r}
+print_progress <- function(){
+  .id <<- tcl('after', 60000, print_progress)
+  print(format_puzzle())
+}
+print_progress()
+tcl("after", "cancel", .id)
+```
+
 
