@@ -9,18 +9,17 @@ library(profvis)
 library(gtools)
 library(hash)
 library(readxl)
-library(tcltk)
 options(expressions = 500000)
 ```
 
 ```{r}
 get_dims <- function(){
-  grid <- readxl::read_xlsx('C:\\Users\\jakes\\Documents\\R\\xword-generator\\xword_grid.xlsx', col_names = FALSE)
+  grid <- readxl::read_xlsx('./xword_grid.xlsx', col_names = FALSE)
   return(ncol(grid))
 }
 
 get_grid <- function(){
-  grid <- readxl::read_xlsx('C:\\Users\\jakes\\Documents\\R\\xword-generator\\xword_grid.xlsx', col_names = FALSE)
+  grid <- readxl::read_xlsx('./xword_grid.xlsx', col_names = FALSE)
   puzz <- c()
   for(i in 1:ncol(grid)){
     puzz <- c(puzz, unlist(grid[,i]))
@@ -30,7 +29,7 @@ get_grid <- function(){
 
 get_word_lens <- function(t = FALSE){
   #browser()
-  grid <- readxl::read_xlsx('C:\\Users\\jakes\\Documents\\R\\xword-generator\\xword_grid.xlsx', col_names = FALSE) %>% 
+  grid <- readxl::read_xlsx('./xword_grid.xlsx', col_names = FALSE) %>% 
     data.frame()
   word_lens <- c()
   list <- c()
@@ -56,7 +55,7 @@ get_word_depends <- function(word_lens, word_pos){
 }
 
 get_word_pos <- function(){
-  grid <- readxl::read_xlsx('C:\\Users\\jakes\\Documents\\R\\xword-generator\\xword_grid.xlsx', col_names = FALSE)
+  grid <- readxl::read_xlsx('./xword_grid.xlsx', col_names = FALSE)
   word_pos <- c()
   list <- c()
   for(i in 1:ncol(grid)){
@@ -91,15 +90,16 @@ format_puzzle <- function(){
 
 ```{r}
 #initialize the dictionary
-dict_init <- function(word_len_list, level = 85, data_buzzwords){
+dict_init <- function(word_len_list, level = 85){
   dict <- qdapDictionaries::DICTIONARY
   pb_words <- read.delim('peter-broda-wordlist__scored.txt')
-  pb_words <- data.frame(do.call(rbind, sapply(pb_words, strsplit, ";"))) %>% 
+  pb_words <- data.frame(do.call(rbind, sapply(pb_words, str_split, ";"))) %>% 
     dplyr::rename('word' = 'X1', 'score' = 'X2') %>% 
+    mutate(score = as.numeric(score),
+           word = as.character(word)) %>% 
     filter(score > level)
   dict <- bind_rows(dict,pb_words) %>% 
     select(word) %>%
-    rbind(data.frame(word = data_buzzwords)) %>% 
     distinct(word)
   dict <- dict %>% 
     mutate(char_num = nchar(word),
@@ -179,7 +179,7 @@ rm_word <- function(depth){
   for(i in 1:len){
     puzz[pos+i-1] <<- "?"
   }
-  return(ifelse(depth-1 == 0, 1, depth-1))
+  return(depth-1)
 }
 
 #read all across words through 
@@ -240,19 +240,19 @@ subset_dict <- function(across, dict, down, depth){
   return(dict)
 }
 
-main <- function(seed, data_buzzwords){
-  #browser()
+main <- function(seed){
   down <- c()
   while(length(down) != length(stack_dict)){ #depth is the index progress through stack_dict
     across <- read_across(depth)
     if(rlang::is_empty(stack_dict[[depth]])){browser()}
+    #if(length(runlog) == 68){browser()}
     stack_dict[[depth]] <- subset_dict(across,stack_dict[[depth]],down,depth) #returns a list of all valid words
     stack_dict[[depth]][!stack_dict[[depth]] %in% down] #remove existing clues
     #if(length(stack_dict[[1]]) == 574){browser()}
     
     # if there are no other possible words at this depth and there are words preceding that are affected, jump to that word
     while(rlang::is_empty(stack_dict[[depth]])){
-      if (depth == 0) {
+      if (rlang::is_empty(stack_dict[[1]])) {
         return(puzz)
       } else if(!rlang::is_empty(affected_words(depth))){
         if(length(affected_words(depth)) == 1){
@@ -267,28 +267,22 @@ main <- function(seed, data_buzzwords){
           depth <- rm_word(k)
         }
         down <- down[1:depth]
-        depth <- ifelse(depth == 0, depth, depth + 1)
+        depth <- depth + 1
       } else if (rlang::is_empty(affected_words)){
         browser()
         stack_dict[[depth]] <- mstr_dict[[depth]]
         rm_word(depth)
       }
     }
-    if(rlang::is_empty(stack_dict[[depth+1]])){browser()}
-    
-    data_words <- stack_dict[[depth]][data_buzzwords %in% stack_dict[[depth]]]
-    if(length(data_words) > 1){
-      candidate <- data_words[1]
-      stack_dict[[depth]] <- stack_dict[[depth]][stack_dict[[depth]] != candidate] # remove the chosen word from dict
-    } else {
-      candidate <- stack_dict[[depth]][1]
-      stack_dict[[depth]] <- stack_dict[[depth]][-1]
-    }
-    if(is.na(candidate)){browser()}
+  
+    candidate <- stack_dict[[depth]][1]
+    stack_dict[[depth]] <- stack_dict[[depth]][-1]
+      
+    if(depth == 2 & stringi::stri_detect_fixed(puzz[3],"?")){browser()}
     down[depth] <- candidate
     depth <- write_word(candidate, depth, type = 'str')
     runlog <<- c(runlog, depth)
-    if(candidate == 'charter' & depth == 4 & down[1] == 'woo'){browser()}
+    
   }
   return(puzz)
 }
@@ -310,17 +304,17 @@ affected_words <- function(depth){
 ```
 
 ```{r, echo = FALSe, message = FALSE}
-data_buzzwords <- c('database','query','sql','tableau','programming','stats','ggplot','rstudio','matrix','coding','algorithm','resume','cv','jacob','code','program','plots','chart','graph','info','games','game','xword','puzzle','abtest','data','dashboard','etl','datalake','insight','analyst','analysis','nyt','newyorktimes','spellingbee','sudoku','tiles','minis','mini')
+# data_buzzwords <- c('database','query','sql','tableau','programming','stats','ggplot','rstudio','matrix','coding','algorithm','resume','cv','jacob','code','program','plots','chart','graph','info','games','game','xword','puzzle','abtest','data','dashboard','etl','datalake','insight','analyst','analysis','nyt','newyorktimes','spellingbee','sudoku','tiles','minis','mini')
 dims <<- get_dims()
 puzz <<- get_grid()
 word_lens <<- get_word_lens()
 word_pos <<- get_word_pos()
 depends <<- get_word_depends(word_lens, word_pos)
-#stack_dict <<- dict_init(word_lens, level = 85, data_buzzwords)
-#mstr_dict <<- stack_dict
-stack_dict <<- mstr_dict
+stack_dict <<- dict_init(word_lens, level = 60)
+mstr_dict <<- stack_dict
+#stack_dict <<- mstr_dict
 all_word_lens <- unique(c(word_lens, get_word_lens(t=TRUE)))
-#frag_hash <<- populate_frag_hash(unique(all_word_lens))
+frag_hash <<- populate_frag_hash(unique(all_word_lens))
 depth<<-1
 format_puzzle()
 ```
@@ -328,13 +322,14 @@ format_puzzle()
 ```{r}
 runlog <<- c()
 start_time <- Sys.time()
-main(seed, data_buzzwords)
+main(seed)
 end_time <- Sys.time()
 end_time - start_time
 format_puzzle()
 data.frame(vals = runlog) %>% 
   ggplot() +
     geom_bar(aes(x = vals))
+length(runlog)
 ```
 
 ```{r}
