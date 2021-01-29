@@ -252,23 +252,42 @@ main <- function(seed){
     
     # if there are no other possible words at this depth and there are words preceding that are affected, jump to that word
     while(rlang::is_empty(stack_dict[[depth]])){
+      #if(length(stack_dict[[9]]) == 1 & length(stack_dict[[10]] == 1)){browser()}
       if (rlang::is_empty(stack_dict[[1]])) {
         return(puzz)
+        
+        
       } else if(!rlang::is_empty(affected_words(depth))){
         if(length(affected_words(depth)) == 1){
           #if there is only a single dependency in the previous col, go to the earliest word in the puzzle that is affected by current failure
           matched_pos <- match(affected_words(depth), word_pos)
+          stack_dict[(matched_pos+1):length(stack_dict)] <- mstr_dict[(matched_pos+1):length(stack_dict)]
+          for(k in (depth-1):matched_pos){
+            depth <- rm_word(k)
+          }
+          down <- down[1:depth]
+          depth <- depth + 1
+          
+          
         } else if(length(affected_words(depth)) > 1){
-          #go to position of the most recently added word in the puzzle that is affected by current failure
-          matched_pos <- match(max(affected_words(depth)), word_pos) 
+          pos <- affected_words(depth)
+          pos <- pos[order(pos,decreasing = TRUE)]
+          for(z in 1:length(pos)){
+            matched_pos <- match(pos[z], word_pos)
+            if(rlang::is_empty(stack_dict[[matched_pos]])){
+              next
+            }
+            stack_dict[(matched_pos+1):length(stack_dict)] <- mstr_dict[(matched_pos+1):length(stack_dict)]
+            for(k in (depth-1):matched_pos){
+              depth <- rm_word(k)
+            }
+            down <- down[1:depth]
+            depth <- depth + 1
+            break
+          }
         }
-        stack_dict[(matched_pos+1):length(stack_dict)] <- mstr_dict[(matched_pos+1):length(stack_dict)]
-        for(k in (depth-1):matched_pos){
-          depth <- rm_word(k)
-        }
-        down <- down[1:depth]
-        depth <- depth + 1
-      } else if (rlang::is_empty(affected_words)){
+      
+        } else if (rlang::is_empty(affected_words)){
         browser()
         stack_dict[[depth]] <- mstr_dict[[depth]]
         rm_word(depth)
@@ -310,11 +329,11 @@ puzz <<- get_grid()
 word_lens <<- get_word_lens()
 word_pos <<- get_word_pos()
 depends <<- get_word_depends(word_lens, word_pos)
-stack_dict <<- dict_init(word_lens, level = 60)
-mstr_dict <<- stack_dict
-#stack_dict <<- mstr_dict
+#stack_dict <<- dict_init(word_lens, level = 60)
+#mstr_dict <<- stack_dict
+stack_dict <<- mstr_dict
 all_word_lens <- unique(c(word_lens, get_word_lens(t=TRUE)))
-frag_hash <<- populate_frag_hash(unique(all_word_lens))
+#frag_hash <<- populate_frag_hash(unique(all_word_lens))
 depth<<-1
 format_puzzle()
 ```
