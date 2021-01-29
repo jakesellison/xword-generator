@@ -256,36 +256,14 @@ main <- function(seed){
       if (rlang::is_empty(stack_dict[[1]])) {
         return(puzz)
         
-        
       } else if(!rlang::is_empty(affected_words(depth))){
-        if(length(affected_words(depth)) == 1){
-          #if there is only a single dependency in the previous col, go to the earliest word in the puzzle that is affected by current failure
-          matched_pos <- match(affected_words(depth), word_pos)
-          stack_dict[(matched_pos+1):length(stack_dict)] <- mstr_dict[(matched_pos+1):length(stack_dict)]
-          for(k in (depth-1):matched_pos){
-            depth <- rm_word(k)
-          }
-          down <- down[1:depth]
-          depth <- depth + 1
-          
-          
-        } else if(length(affected_words(depth)) > 1){
-          pos <- affected_words(depth)
-          pos <- pos[order(pos,decreasing = TRUE)]
-          for(z in 1:length(pos)){
-            matched_pos <- match(pos[z], word_pos)
-            if(rlang::is_empty(stack_dict[[matched_pos]])){
-              next
-            }
-            stack_dict[(matched_pos+1):length(stack_dict)] <- mstr_dict[(matched_pos+1):length(stack_dict)]
-            for(k in (depth-1):matched_pos){
-              depth <- rm_word(k)
-            }
-            down <- down[1:depth]
-            depth <- depth + 1
-            break
-          }
+        matched_pos <- match(min(affected_words(depth)), word_pos)
+        stack_dict[(matched_pos+1):length(stack_dict)] <- mstr_dict[(matched_pos+1):length(stack_dict)]
+        for(k in (depth-1):matched_pos){
+          depth <- rm_word(k)
         }
+        down <- down[1:depth]
+        depth <- depth + 1
       
         } else if (rlang::is_empty(affected_words)){
         browser()
@@ -294,14 +272,11 @@ main <- function(seed){
       }
     }
   
-    candidate <- stack_dict[[depth]][1]
-    stack_dict[[depth]] <- stack_dict[[depth]][-1]
-      
-    if(depth == 2 & stringi::stri_detect_fixed(puzz[3],"?")){browser()}
+    candidate <- sample(stack_dict[[depth]],1)
+    stack_dict[[depth]] <- stack_dict[[depth]][stack_dict[[depth]] != candidate]
     down[depth] <- candidate
     depth <- write_word(candidate, depth, type = 'str')
     runlog <<- c(runlog, depth)
-    
   }
   return(puzz)
 }
