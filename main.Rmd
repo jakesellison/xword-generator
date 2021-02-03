@@ -304,11 +304,11 @@ puzz <<- get_grid()
 word_lens <<- get_word_lens()
 word_pos <<- get_word_pos()
 depends <<- get_word_depends(word_lens, word_pos)
-#stack_dict <<- dict_init(word_lens, level = 60)
-#mstr_dict <<- stack_dict
-stack_dict <<- mstr_dict
+stack_dict <<- dict_init(word_lens, level = 60)
+mstr_dict <<- stack_dict
+#stack_dict <<- mstr_dict
 all_word_lens <- unique(c(word_lens, get_word_lens(t=TRUE)))
-#frag_hash <<- populate_frag_hash(unique(all_word_lens))
+frag_hash <<- populate_frag_hash(unique(all_word_lens))
 depth<<-1
 format_puzzle()
 ```
